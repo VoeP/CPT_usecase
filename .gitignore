@@ -1,1 +1,4 @@
 *.parquet
+*paths_cpt.py
+*__pycache*
+*summary_stats/*
