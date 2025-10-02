@@ -5,11 +5,28 @@ import paths_cpt
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+# todo: if you change model type, the model needs to be imported again for pickle.load to work correctly
+from sklearn.ensemble import RandomForestClassifier
+import pickle
 
 df = pd.read_parquet(paths_cpt.PATH_TO_PARQUET)
 
+#we take a known sample for dashboard drafting
 one_samp = df[df["sondering_id"]==314]
 
+## we load the finished model here (change later, keep used libraries at imports)
+with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
+    exported_model = pickle.load(f)
+
+# we only take features that were used to train our model here:
+features = ['start_sondering_mtaw', 'diepte_sondering_tot', 'diepte', 'diepte_mtaw',
+       'qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
+
+
+predictions = exported_model.predict(one_samp[features])
+
+# we create some predictions
+one_samp["predictions"] = predictions
 
 signal = one_samp.icn.values
 index = one_samp.index
@@ -30,6 +47,7 @@ selected_category = st.sidebar.selectbox("Select category", categories)
 
 
 
+# We use teh selected category to show only data we want to see
 if selected_category == "Predicted segments":
     #fig = go.Figure()
 
@@ -37,7 +55,7 @@ if selected_category == "Predicted segments":
         one_samp,
         x="index",
         y="icn",
-        color="lithostrat_id",
+        color="predictions",
         title="Predicted segments",
     )
 
