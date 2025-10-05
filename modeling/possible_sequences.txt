@@ -1,0 +1,124 @@
+[
+    {
+        "Quartair": [
+            "Mont_Panisel",
+            "Gentbrugge",
+            "Maldegem",
+            null,
+            "Brussel",
+            "Aalbeke",
+            "Tielt",
+            "Merelbeke",
+            "Kwatrecht",
+            "Mons_en_Pevele",
+            "Lede",
+            "Ursel",
+            "Vlierzele",
+            "Wemmel",
+            "Schelde Groep + Mons_en_Pevele",
+            "Diest",
+            "Bolderberg",
+            "Tertiair",
+            "Asse",
+            "Sint_Huibrechts_Hern"
+        ],
+        "Mont_Panisel": [
+            "Aalbeke"
+        ],
+        "Aalbeke": [
+            null,
+            "Mons_en_Pevele",
+            "Quartair + Mont_Panisel"
+        ],
+        "null": [],
+        "Mons_en_Pevele": [
+            "Orchies"
+        ],
+        "Quartair + Mont_Panisel": [
+            "Aalbeke",
+            null
+        ],
+        "Gentbrugge": [
+            "Egem",
+            null
+        ],
+        "Egem": [],
+        "Maldegem": [
+            "Lede"
+        ],
+        "Brussel": [
+            null,
+            "Mont_Panisel",
+            "Aalbeke"
+        ],
+        "Onbekend": [
+            "Ursel",
+            "Asse",
+            "Bolderberg",
+            "Lede",
+            "Kwatrecht",
+            "Merelbeke",
+            "Diest",
+            "Wemmel",
+            "Aalbeke",
+            "Brussel",
+            null,
+            "Veldwezelt en Gembloux",
+            "Sint_Huibrechts_Hern"
+        ],
+        "Ursel": [
+            "Asse"
+        ],
+        "Asse": [
+            "Wemmel"
+        ],
+        "Wemmel": [
+            "Lede",
+            null
+        ],
+        "Lede": [
+            "Kwatrecht",
+            "Merelbeke",
+            "Brussel",
+            "Egemkapel",
+            null,
+            "Mont_Panisel"
+        ],
+        "Bolderberg": [
+            "Ursel"
+        ],
+        "Tielt": [],
+        "Merelbeke": [
+            "Kwatrecht",
+            null
+        ],
+        "Kwatrecht": [
+            "Mont_Panisel",
+            "Merelbeke"
+        ],
+        "Antropogeen": [
+            "Brussel",
+            "Quartair"
+        ],
+        "Vlierzele": [],
+        "Schelde Groep + Mons_en_Pevele": [],
+        "Veldwezelt en Gembloux": [
+            "Diest",
+            "Brussel"
+        ],
+        "Diest": [],
+        "Orchies": [],
+        "Tertiair": [],
+        "Egemkapel": [
+            "Mont_Panisel"
+        ],
+        "Sint_Huibrechts_Hern": [
+            "Wemmel",
+            null
+        ],
+        "Quartair_Holoceen": [],
+        "Onbekend + Mont_Panisel": [
+            "Aalbeke"
+        ]
+    }
+]

@@ -19,7 +19,7 @@ with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
     exported_model = pickle.load(f)
 
 # we only take features that were used to train our model here:
-features = ['start_sondering_mtaw', 'diepte_sondering_tot', 'diepte', 'diepte_mtaw',
+features = ['diepte',
        'qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
 
 
