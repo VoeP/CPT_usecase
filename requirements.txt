@@ -6,3 +6,5 @@ plotly==6.3.0
 eli5==0.16.0
 hmmlearn==0.3.3
 seglearn==1.2.5
+folium==0.20.0
+geopandas==1.1.1
