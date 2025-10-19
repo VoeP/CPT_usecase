@@ -42,10 +42,19 @@ one_samp["noise_category"] = pd.cut(
     labels=[f"Cat {i}" for i in range(1, 6)])
 
 
-categories = ["Predicted segments","Segment uncertainty"]
+categories = ["Predicted segments","Segment uncertainty", "Nearest segment"]
 selected_category = st.sidebar.selectbox("Select category", categories)
 
+df["x_dist"] = df["x"] - one_samp["x"]
 
+df["y_dist"] = df["y"] - one_samp["y"]
+
+df["dist"] = np.sqrt(df["x"]**2 + df["y"]**2)
+
+filtered = df.dropna()
+
+min_sample = filtered[filtered["dist"] == filtered["dist"].min()].sondering_id.unique()[0]
+min_sample = filtered[filtered["sondering_id"]==min_sample]
 
 # We use teh selected category to show only data we want to see
 if selected_category == "Predicted segments":
@@ -61,7 +70,7 @@ if selected_category == "Predicted segments":
 
     st.plotly_chart(fig, key="predictions")
 
-else:
+elif selected_category == "Segment uncertainty":
     #fig = go.Figure()
 
     fig = px.line(
@@ -73,3 +82,19 @@ else:
     )
 
     st.plotly_chart(fig, key="uncertainty")
+
+
+elif selected_category == "Nearest segment":
+    #fig = go.Figure()
+
+    fig = px.line(
+        min_sample,
+        x="index",
+        y="icn",
+        color="lithostrat_id",
+        title="Sample from closest drilling",
+    )
+
+    st.plotly_chart(fig, key="predictions")
+
+
