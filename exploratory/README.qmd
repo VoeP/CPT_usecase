@@ -17,10 +17,13 @@ knitr::opts_chunk$set(
 ```
 
 
+### Project Folder google drive
 
+- [Project Data Science - Year 2 - UHasselt MSc - Google Drive](https://drive.google.com/drive/folders/1zF4BmxsynoA-PJ4ole8YZemfu0R3WHpG?usp=drive_link)
 
 ### Data dictionary for Cone Penetration Test use case
 
+- Quartair soils in the Brussels region
 
 * **“sondeernummer”**: unique identification number;
 * **“(x,y)”**: coordinates in Lambert 72 projection;
@@ -88,7 +91,7 @@ knitr::opts_chunk$set(
 - look at the sequence of layer transitions
 - geological domain knowledge, homogeneous signal/heterogeneous signal. Sharp boundaries vs smooth transitions
 - first maybe group similar layers together, then predict the groups, then within the groups predict the specific layers
-
+- handle removed layers using geotechnical information on sequentiality
 
 ```{r}
 library(tidyverse)
@@ -97,8 +100,10 @@ library(arrow)
 library(here)
 library(xgboost)
 library(knitr)
-main_folder <- "year2/ProjectDataScience/project"
+library(zoo)
+main_folder <- "year2/Project_Data_Science/project"
 data_folder <- here(main_folder, "data")
+results_folder <- here(main_folder, "results")
 cpt_df <- read_parquet(
   paste(
     data_folder,
@@ -119,6 +124,21 @@ cpt_df <- cpt_df[!is.na(lithostrat_id)]
 head(cpt_df) %>% kable()
 ```
 
+```{r}
+
+# read file from data_folder
+lithostrat_label_order <- fread(
+  paste(
+    data_folder,
+    "Copy of lithostrat_label_order - lithostrat_label_order.csv",
+    sep = "/"
+  )
+)
+kable(lithostrat_label_order)
+```
+
+
+
 
 ```{r}
 soldering_id_with_litho_missing <- unique(lithostrat_missing_df$sondering_id)
@@ -129,6 +149,7 @@ id_to_check <- 493
 common_soldering_id <- intersect(soldering_id_with_litho_missing, soldering_id_with_litho)
 soldering_315_df <- cpt_df[sondering_id == id_to_check]
 soldering_315_df_without_litho <- lithostrat_missing_df[sondering_id == id_to_check]
+
 ```
 
 ```{r}
@@ -152,17 +173,17 @@ kable(obs)
 
 - find unique drillings  then map
 
-```{r}
+```{r, fig.width=10, fig.height=6}
 unique_drillings <- cpt_df |>
   unique(by = "sondering_id")
 
 ## convert lambert to plot to plot with geom_sf
 library(sf)
-library(ggplot2)
 library(ggspatial)
 library(ggrepel)
 
 
+unique_drillings[, lithostrat_id_aval := ifelse(is.na(lithostrat_id), "missing", "available")]
 unique_drillings_sf <- st_as_sf(unique_drillings,
   coords = c("x", "y"), crs = 31370
 ) |>
@@ -175,120 +196,204 @@ head(unique_drillings_sf) %>% kable()
 #   level = 2, path = tempdir()
 # ) |>
 #   st_as_sf() %>%
-#   filter(NAME_2 == "Vlaams Brabant")
-
+#    filter(NAME_2 %in% c("Vlaams Brabant", "Oost-Vlaanderen"))
+# 
 # save(be_lvl2, file = paste0(data_folder, "/be_lvl2.rda"))
 load(paste0(data_folder, "/be_lvl2.rda"))
 ggplot(be_lvl2) +
-  geom_sf(fill = "gray") +
+  geom_sf(fill = "grey96") +
   geom_sf(
     data = unique_drillings_sf,
-    aes(geometry = geometry),
-    color = "blue", size = 0.5
+    aes(geometry = geometry, color = lithostrat_id_aval),
+     size = 0.5
   ) +
-  labs(title = "CPT Drillings in Brussels Region") +
-  theme_minimal()
+  geom_sf_text(
+    aes(geometry = geometry,label = NAME_2)
+  ) +
+  labs(title = "CPT Drillings in Belgium Region") +
+  theme_minimal()+
+  theme(legend.position = "bottom")
 ```
+
+- unique solderingID by lithostrat_id
+
+```{r}
+soldering_id_by_litho <- unique(cpt_df, 
+                                by = c("sondering_id", 
+                                       "lithostrat_id"))
+```
+
+- sequence of lithostrat_id per soldering id
+- why important:understand layer sequences
+
+```{r}
+cpt_seq <- cpt_df[, .(col_seq = paste0(rev(unique(lithostrat_id)), 
+                                       collapse = "|"),
+                      len = uniqueN(lithostrat_id), 
+                  layers = list(rev(unique(lithostrat_id)))),
+                  by = sondering_id]
+
+# depth by soldering id
+soldering_depth <- cpt_df[, .(min_depth = min(diepte, na.rm = TRUE),
+                           max_depth = max(diepte, na.rm = TRUE),
+                           obs = .N),
+                       by = sondering_id]
+soldering_depth[, depth_range := max_depth - min_depth]
+
+# merge
+cpt_seq <- merge(cpt_seq, 
+                 soldering_depth, 
+                 by = "sondering_id", 
+                 all.x = TRUE)
+# filter off where len > 1
+#cpt_seq <- cpt_seq[len > 1]
+head(cpt_seq, 20) %>% kable()
+```
+
+
+```{r}
+
+# Extract all consecutive pairs per sondering
+pair_dt <- cpt_seq[, {
+  lyr <- unlist(layers)
+  if (length(lyr) < 2) {
+    data.table(from_layer = character(), to_layer = character())
+  } else {
+    data.table(
+      from_layer = lyr[-length(lyr)],
+      to_layer   = lyr[-1]
+    )
+  }
+}, by = sondering_id]
+
+pair_dt[, two_layers := paste(from_layer, to_layer, sep = " -> ")]
+kable(pair_dt[1:10])
+```
+
+
+```{r}
+#melt to get individual lirthostrat_id
+
+pair_dt_melt <- melt(pair_dt,
+                     id.vars = c("sondering_id", "two_layers"),
+                     measure.vars = c("from_layer", "to_layer"),
+                     variable.name = "layer_type",
+                     value.name = "lithostrat_id")
+
+soldering_depth_li <- cpt_df[, .(min_depth = min(diepte, na.rm = TRUE),
+                           max_depth = max(diepte, na.rm = TRUE),
+                           obs = .N),
+                       by = c("sondering_id", "lithostrat_id")]
+# calculate expected observations per depth range
+soldering_depth_li[, expected_obs := ceiling((max_depth - min_depth) / 0.02)]  # assuming 2 cm intervals
+# merge with pair_dt_melt
+pair_dt_melt <- merge(pair_dt_melt, 
+soldering_depth_li, by = c("sondering_id", "lithostrat_id"),
+ all.x = TRUE)
+head(pair_dt_melt, 20) %>% kable()
+
+```
+
+### Soil Behavior Type Classification based on Robertson (2016)
+
+
+-  rf bands : 
+
+
+### Core SBT charts / banding (qc, Rf, qtn, fr, Ic)
+
+* [Robertson (2016) — CPT-based SBT classification system (update, CGJ)](https://www.cpt-robertson.com/PublicationsPDF/Robertson%20Updated%20SBT%20CGJ%202016.pdf)
+* [Robertson — CPT Guide (7th ed., concise handbook)](https://www.cpt-robertson.com/PublicationsPDF/CPT-Guide-7th-Final-SMALL.pdf)
+* [Lunne, Robertson & Powell (1997/2002) — *Cone Penetration Testing in Geotechnical Practice* (CRC Press page)](https://www.taylorfrancis.com/books/mono/10.1201/9781482295047/cone-penetration-testing-geotechnical-practice-lunne-powell-robertson)
+
+### Standards / definitions (how rf is defined, instrumentation & QA/QC)
+
+* [ISO 22476-1:2022 — Electrical cone & piezocone penetration test (ISO page)](https://www.iso.org/standard/75661.html)
+* [ASTM D5778 — Electronic friction cone & piezocone penetration test (ASTM page)](https://www.astm.org/d5778-20.html)
+
+### Belgium-focused validations (linking CPT bands to lithostratigraphy)
+
+* [Rogiers et al. (2017) — Model-based CPT classification & automated lithostrat mapping (PLOS ONE)](https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0176656)
+* [Schiltz (2020) — Using CPTs in stratigraphy; derived parameters vs qc/Rf (Geologica Belgica)](https://popups.uliege.be/1374-8505/index.php?id=6668&lang=en)
+* [Deckers & Everaert (2022) — CPT characterization of Miocene units near Antwerp (Geologica Belgica PDF)](https://popups.uliege.be/1374-8505/index.php?file=1&id=7003&pid=6999)
+
+### Practitioner intros / context
+
+* [AGS (2022) — Introduction to Cone Penetration Testing](https://www.ags.org.uk/2022/09/introduction-to-cone-penetration-testing/)
+* [pydov — Example notebooks for querying DOV CPT data](https://pydov.readthedocs.io/en/stable/notebooks/search_sonderingen.html)
 
 
 
 ```{r}
 
-library(zoo)
-
-cpt_df[, rf := (fs / (qc * 1000)) * 100]
-window_m <- 0.5  # smoothing window in meters
-cpt_df[, dz := median(diff(diepte), na.rm = TRUE), 
-       by = sondering_id]
-cpt_df[(is.na(dz) | !is.finite(dz) | dz <= 0), dz := 0.02]    # fallback 2 cm
-cpt_df[(is.na(dz)), dz := 0.02] 
-cpt_df[, k := pmax(5L, as.integer(round(window_m / dz))),
-       by = sondering_id]
-cpt_df[k %% 2 == 0, k := k + 1L]                 # odd window for centering
-
-cpt_df[!is.na(qc), qc_med := rollmedian(qc, k[1], 
-                              fill = "extend", 
-                              align = "center"), 
-       by = sondering_id]
-cpt_df[, rf_med := rollmedian(rf, k[1], 
-                              fill = "extend", 
-                              align = "center"), 
-       by = sondering_id]
-
-
-cpt_df[, cohesive_flag   := as.integer(rf_med >= 1.5)]
-cpt_df[, granular_flag   := as.integer(rf_med <= 1.0)]
-cpt_df[, organic_flag    := as.integer(qc_med < 0.5 & rf_med > 5)]
-
-
-cpt_df[, behavior_basic := fcase(
-  qc_med < 0.5 & rf_med > 5,
-  "Organic/peat",
-  qc_med < 1.5 & rf_med >= 2,
-  "Soft clay",
-  qc_med < 4.0 & rf_med >= 1.5,
-  "Clay/Silty clay",
-  between(qc_med, 4.0, 10.0)  &
-    rf_med <= 1.5,
-  "Sand (loose)",
-  between(qc_med, 10.0, 20.0) &
-    rf_med <= 1.2,
-  "Sand (medium)",
-  between(qc_med, 20.0, 40.0) &
-    rf_med <= 1.0,
-  "Sand (dense)",
-  qc_med >= 40.0 & rf_med < 0.5,
-  "Gravel/Cemented",
-  default = "Mixed/Transitional"
+cpt_df[, rf_band := fcase(
+  !is.na(rf) & rf < 1.0,                    "<1%",
+  !is.na(rf) & rf < 1.5,                    "1–1.5%",
+  !is.na(rf) & rf < 3.0,                    "1.5–3%",
+  !is.na(rf) & rf < 5.0,                    "3–5%",
+  !is.na(rf) & rf < 100,                    "5–100%",
+  is.na(rf),                                     NA_character_,
+  default = ">=100%" 
 )]
-
-cpt_df[, soft_class := fcase(
-  qc_med < 1,
-  "Very soft",
-  between(qc_med, 1, 2),
-  "Soft",
-  between(qc_med, 2, 4),
-  "Firm",
-  between(qc_med, 4, 8),
-  "Stiff",
-  between(qc_med, 8, 16),
-  "Very stiff",
-  qc_med >= 16,
-  "Hard"
-)]
-
-cpt_df[, sand_density := fcase(
-  granular_flag == 1 & qc_med < 10,
-  "Loose",
-  granular_flag == 1 &
-    between(qc_med, 10, 20),
-  "Medium",
-  granular_flag == 1 &
-    between(qc_med, 20, 40),
-  "Dense",
-  granular_flag == 1 & qc_med >= 40,
-  "Very dense",
-  default = NA_character_
-)]
-
-cpt_df[, clay_strength := fcase(
-  cohesive_flag == 1 & qc_med < 1,
-  "Very soft",
-  cohesive_flag == 1 &
-    between(qc_med, 1, 2),
-  "Soft",
-  cohesive_flag == 1 &
-    between(qc_med, 2, 4),
-  "Firm",
-  cohesive_flag == 1 &
-    between(qc_med, 4, 8),
-  "Stiff",
-  cohesive_flag == 1 & qc_med >= 8,
-  "Very stiff+",
-  default = NA_character_
-)]
+cpt_df[, rf_band := factor(rf_band,
+  levels = c("<1%","1–1.5%","1.5–3%","3–5%","5–100%",">=100%"),
+   ordered = TRUE)]
 
 ```
+
+- qc band
+
+```{r}
+cpt_df[, qc_band := fcase(
+  !is.na(qc) & qc <  2,   "<2",
+  !is.na(qc) & qc <  4,   "2–4",
+  !is.na(qc) & qc < 10,   "4–10",
+  !is.na(qc) & qc < 15,   "10–15",
+  !is.na(qc) & qc < 30,   "15–30",
+  !is.na(qc) & qc >= 30,  ">=30",
+  default = NA_character_
+)]
+cpt_df[, qc_band := factor(qc_band,
+  levels = c("<2","2–4","4–10","10–15","15–30",">=30"), 
+  ordered = TRUE)]
+
+```
+
+
+
+```{r}
+cpt_df[, fr_band := fcase(
+  !is.na(fr) & fr < 0.5,         "<0.5%",
+  !is.na(fr) & fr < 1.0,         "0.5–1%",
+  !is.na(fr) & fr < 2.0,         "1–2%",
+  !is.na(fr) & fr < 4.0,         "2–4%",
+  !is.na(fr) & fr < 7.0,         "4–7%",
+  !is.na(fr) & fr < 15.0,        "7–15%",
+  !is.na(fr) & fr >= 15.0,       ">=15%",
+  default = NA_character_
+)]
+cpt_df[, fr_band := factor(fr_band,
+  levels = c("<0.5%","0.5–1%","1–2%",
+             "2–4%","4–7%","7–15%",">=15%"), 
+  ordered = TRUE)]
+```
+
+
+```{r}
+cpt_df[, qtn_band := fcase(
+  !is.na(qtn) & qtn < 10,        "<10",
+  !is.na(qtn) & qtn < 20,        "10–20",
+  !is.na(qtn) & qtn < 50,        "20–50",
+  !is.na(qtn) & qtn < 100,       "50–100",
+  !is.na(qtn) & qtn < 200,       "100–200",
+  !is.na(qtn) & qtn >= 200,      ">=200",
+  default = NA_character_
+)]
+cpt_df[, qtn_band := factor(qtn_band,
+  levels = c("<10","10–20","20–50","50–100","100–200",">=200"), ordered = TRUE)]
+
+```
+
 
 ```{r, fig.width=10, fig.height=6}
 plot_litho_stack <- function(data,
@@ -320,13 +425,21 @@ plot_litho_stack <- function(data,
     theme(axis.text.x = element_text(angle = 35, hjust = 1))
 }
 
-plot_litho_stack(cpt_df, class_col = "behavior_basic")
+
 
 ```
 
 
 ```{r, fig.width=10, fig.height=6}
-plot_litho_stack(cpt_df, class_col = "soft_class")
+band_nms <- cpt_df[,.SD, .SDcols = patterns("band$")] %>%
+  names()
+for (bnm in band_nms) {
+  p = plot_litho_stack(cpt_df, class_col = bnm,
+                   title = paste("Distribution of", bnm, "by lithostrat_id")) 
+  print(p)
+}
+
+
 ```
 
 
@@ -335,7 +448,7 @@ plot_litho_stack(cpt_df, class_col = "soft_class")
 
 
 
-### What we learned from the literature (CPT → soil subdivision)
+### What we learned from the literature (CPT soil subdivision)
 
 * From the literature, we learned that **soil layers can be divided using CPT-based soil properties** such as cone resistance (**qc**), sleeve friction (**fs**), friction ratio (**Rf = fs/qc**), and normalized indices (**Qtn**, **Fr**).
 * **Standard CPT charts** (e.g., Robertson) link these properties to **soil behavior types (SBT)** like clay, silt, sand, and dense sand/gravel.
@@ -453,8 +566,8 @@ plot_robertson_pair <- function(dt,
     )
 }
 
-
-ids <- sample(unique(cpt_df$sondering_id), 10)
+set.seed(300)
+ids <- sample(cpt_df[!is.na(lithostrat_id), unique(sondering_id)], 10)
 for (sid in ids) print(plot_robertson_pair(cpt_df, sid, color_var = "behavior"))
 
 ```
@@ -463,7 +576,8 @@ for (sid in ids) print(plot_robertson_pair(cpt_df, sid, color_var = "behavior"))
 - Color the same abobe with  lithorstat ID
 
 ```{r}
-for (sid in ids) print(plot_robertson_pair(cpt_df, sid, color_var = "lithostrat_id"))
+for (sid in ids) print(plot_robertson_pair(cpt_df[!is.na(lithostrat_id)], 
+                                           sid, color_var = "lithostrat_id"))
 ```
 
 
@@ -471,7 +585,11 @@ for (sid in ids) print(plot_robertson_pair(cpt_df, sid, color_var = "lithostrat_
 
 ```{r, fig.width=10, fig.height=6}
 set.seed(124)
-sampled_drillings <- sample(unique(cpt_df$sondering_id), 6)
+unique_sonde_lithor <- cpt_df |>
+  unique(by = c("sondering_id", "lithostrat_id"))
+
+unique_sonde_n <- unique_sonde_lithor[, .(freq = .N), by = sondering_id][freq>=2]
+sampled_drillings <-  unique_sonde_n[, sample(unique(sondering_id), 10)]
 sampled_data <- cpt_df[sondering_id %in% sampled_drillings]
 data.table::setorder(sampled_data, index)
 
@@ -547,7 +665,7 @@ plot_cpt_series(sampled_data,
 )
 ```
 
-```{r}
+```{r, fig.width=10, fig.height=10}
 plot_cpt_series(sampled_data,
   value_col = "fr",
   title = "friction"
@@ -559,9 +677,21 @@ plot_cpt_series(sampled_data,
 
 ```{r}
 # use decompose function to
-extract_trend <- function(x, freq = 5) {
-  decomposed <- decompose(ts(x, frequency = freq))
-  return(decomposed$trend)
+extract_trend <- function(x, freq = 5L) {
+  x <- as.numeric(x)
+  # If frequency invalid or not enough data for 2 periods, return original series
+  if (!is.finite(freq) || freq < 2L) return(x)
+  if (length(na.omit(x)) < 2L) return(x)
+  if (length(x) < 2L * freq) return(x)
+
+  out <- tryCatch({
+    dc <- decompose(ts(x, frequency = freq))
+    tr <- dc$trend
+    # If decompose produced all-NA trend, fall back to original; otherwise fill edge NAs with original values
+    if (all(is.na(tr))) x else ifelse(is.na(tr), x, tr)
+  }, error = function(e) x, warning = function(w) x)
+
+  out
 }
 
 freq_from_depth <- function(z, default = 25L) {
@@ -575,16 +705,6 @@ freq_from_depth <- function(z, default = 25L) {
   as.integer(max(1, round(1 / dz)))
 }
 
-freq_from_depth <- function(z, default = 25L) {
-  if (length(z) < 2L) {
-    return(default)
-  }
-  dz <- stats::median(diff(sort(z)), na.rm = TRUE)
-  if (!is.finite(dz) || dz <= 0) {
-    return(default)
-  }
-  as.integer(max(1, round(1 / dz)))
-}
 
 
 sampled_data[, fr_smooth := extract_trend(fr, freq = freq_from_depth(diepte)),
@@ -598,8 +718,8 @@ sampled_data[, qc_smooth := extract_trend(qc, freq = freq_from_depth(diepte)),
 
 - plot qc_smooth
 
-```{r}
-plot_cpt_series(sampled_data,
+```{r , fig.width=10, fig.height=6}
+plot_cpt_series(sampled_data[!is.na(lithostrat_id)],
   value_col = "qc_smooth",
   title = "Smoothed Cone resistance (trend)"
 )
@@ -612,6 +732,11 @@ plot_cpt_series(sampled_data,
   value_col = "fr_smooth",
   title = "Smoothed friction (trend)"
 )
+```
+
+```{r}
+cpt_df_all <- copy(cpt_df)
+cpt_df <- cpt_df[!is.na(lithostrat_id)]
 ```
 
 
@@ -630,7 +755,7 @@ butter_zero_phase <- function(x, dz, fc = 1.0, order = 4L) {
   as.numeric(signal::filtfilt(bf, xd))
 }
 
-vars_to_plot <- c("qc", "fs", "rf_pct", "qtn", "fr_pct", "fr")
+vars_to_plot <- c("qc", "fs", "rf", "qtn", "fr")
 
 filterd_vars <- paste0(vars_to_plot, "butter_zero")
 cpt_df[, dz := median(diff(diepte), na.rm = TRUE), by = sondering_id]
@@ -641,15 +766,12 @@ cpt_df[, (filterd_vars) := lapply(.SD, butter_zero_phase, dz =dz[1]),
 
 ```
 
-```{r}
 
-```
- 
  
 ```{r}
 # boxplotqc, rf_pct, qtn, fr by lithostrat_id
 
-vars_to_plot <- c("qc", "fs", "rf_pct", "qtn", "fr_pct", "fr")
+vars_to_plot <- c("qc", "fs", "rf", "qtn",  "fr")
 
 lapply(X = vars_to_plot, FUN = function(var) {
     p <- ggplot(cpt_df, aes(x = lithostrat_id, y = log(.data[[var]]), fill = lithostrat_id)) +
@@ -675,8 +797,21 @@ lapply(X = vars_to_plot, FUN = function(var) {
 
 
 
+- plot series of filtered vars 
+
+```{r, eval=FALSE}
+for(var in filterd_vars) {
+  p <- plot_cpt_series(cpt_df[sondering_id %in% ids],
+    value_col = var,
+    title = paste("Filtered", var, "vs Depth")
+  )
+  print(p)
+}
+```
+
+
 ```{r qc_summaries_simple, fig.width=12, fig.height=6}
-cpt_model_df <- cpt_df[!is.na(qc) & !is.na(lithostrat_id) & !is.na(fs)]
+cpt_model_df <- cpt_df[!is.na(rf)]
 
 # 1) Five-number summary of qc PER DRILLING (sondering_id)
 
@@ -686,146 +821,14 @@ cpt_model_df[, diepte_bin := cut(diepte, breaks = seq(
   from = 0, to = max(diepte, na.rm = TRUE), by = 5
 ))]
 
-summ_by_sonder <- cpt_model_df[
-  , .(
-    n          = .N,
-    depth_min  = min(diepte, na.rm = TRUE),
-    depth_max  = max(diepte, na.rm = TRUE),
-    qc_min     = min(qc, na.rm = TRUE),
-    qc_q25     = quantile(qc, 0.25, na.rm = TRUE),
-    qc_med     = median(qc, na.rm = TRUE),
-    qc_q75     = quantile(qc, 0.75, na.rm = TRUE),
-    qc_max     = max(qc, na.rm = TRUE),
-    qc_mean    = mean(qc, na.rm = TRUE),
-    qc_sd      = sd(qc, na.rm = TRUE)
-  ),
-  by = .(sondering_id, diepte_bin, lithostrat_id)
-]
-
-library(knitr)
-kable(head(summ_by_sonder, 10))
-summ_by_sonder_melt <- melt(
-  summ_by_sonder,
-  id.vars = c("sondering_id", "diepte_bin", "lithostrat_id"),
-  variable.name = "statistic",
-  value.name = "value",
-  variable.factor = FALSE
-)
 # remove N
-
-summ_by_sonder_melt <- summ_by_sonder_melt[statistic != "n"]
-
-head(summ_by_sonder_melt)
-## boxplot of qc per lithostrat_id
-# ggplot(summ_by_sonder_melt, aes(x = lithostrat_id, y = value, fill = as.factor(diepte))) +
-#   geom_boxplot() +
-#   scale_y_log10() +
-#   labs(
-#     title = "Distribution of Cone Resistance (qc) Values",
-#     x = "Lithostratigraphic Unit",
-#     y = "Cone Resistance (qc) [MPa, log scale]"
-#   ) +
-#   theme_minimal() +
-#   theme(legend.position = "none") +
-#   facet_wrap(~ statistic, ncol = 2)
-
-stats_vars <- unique(summ_by_sonder_melt$statistic) %>% sample()
-# stats_vars[1:3]
-# find unique depth
-unique_depths <- unique(summ_by_sonder_melt$diepte)
-length(unique_depths)
-for (s in stats_vars) {
-  df_s <- summ_by_sonder_melt[statistic == s]
-
-  p <- ggplot(
-    df_s,
-    aes(x = lithostrat_id, y = value, fill = as.factor(diepte_bin))
-  ) +
-    geom_boxplot() +
-    scale_y_log10() +
-    labs(
-      title = paste("Distribution of qc by Lithostrat (statistic:", s, ")"),
-      x = "Lithostratigraphic Unit",
-      y = "Cone Resistance (qc) [MPa, log scale]",
-      fill = "Depth bin (m)"
-    ) +
-    theme_minimal() +
-    theme(
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      legend.position = "none"
-    )
-
-  print(p)
-}
-# ..
-```
-
-
-### Scatter of depth vs qc colored by lithostrat_id
-
-```{r , fig.width=10, fig.height=6}
-ggplot(cpt_model_df, aes(
-  x = diepte,
-  y = qc,
-  color = as.factor(lithostrat_id)
-)) +
-  geom_point(alpha = 0.5, size = 0.7) +
-  scale_y_log10() +
-  scale_x_reverse() +
-  coord_flip() +
-  labs(
-    title = "Scatter Plot of Cone Resistance (qc) vs Depth",
-    x = "Depth below surface (m)",
-    y = "Cone Resistance (qc) [MPa, log scale]",
-    color = "Lithostrat unit"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
-
-
-```{r , fig.width=10, fig.height=6}
-ggplot(cpt_model_df, aes(
-  x = diepte,
-  y = fr,
-  color = as.factor(lithostrat_id)
-)) +
-  geom_point(alpha = 0.5, size = 0.7) +
-  scale_y_log10() +
-  scale_x_reverse() +
-  coord_flip() +
-  labs(
-    title = "",
-    x = "Depth below surface (m)",
-    y = "Cone Resistance (qc) [MPa, log scale]",
-    color = "Lithostrat unit"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
 ```
 
 
 
 
-```{r , fig.width=10, fig.height=6}
-ggplot(cpt_model_df, aes(
-  x = diepte,
-  y = fs,
-  color = as.factor(lithostrat_id)
-)) +
-  geom_point(alpha = 0.5, size = 0.7) +
-  scale_y_log10() +
-  scale_x_reverse() +
-  coord_flip() +
-  labs(
-    title = "Scatter Plot of Cone Resistance (fs) vs Depth",
-    x = "Depth below surface (m)",
-    y = "Cone Resistance (qc) [MPa, log scale]",
-    color = "Lithostrat unit"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
+
+
 
 
 
@@ -850,113 +853,92 @@ ggplot(cpt_model_df, aes(x = diepte_bin, fill = as.factor(lithostrat_id))) +
 
 
 ```{r}
-cpt_seq <- cpt_df[, .(col_seq = paste0(rev(unique(lithostrat_id)), 
-                                       collapse = "|"),
-                      len = uniqueN(lithostrat_id)), 
-                  by = sondering_id]
+value_vars <-c("qc", "fs", "rf", "qtn", "fr")
+diff_vars <- paste0(value_vars, "_diff") 
+# calculate diff by soldering id 
+cpt_model_df[, (diff_vars) := lapply(.SD, function(x) c(NA, diff(x))),
+              .SDcols = value_vars,
+              by = sondering_id
+              ]
 
-# depth by soldering id
-soldering_depth <- cpt_df[, .(min_depth = min(diepte, na.rm = TRUE),
-                           max_depth = max(diepte, na.rm = TRUE)),
-                       by = sondering_id]
-soldering_depth[, depth_range := max_depth - min_depth]
-
-# merge
-cpt_seq <- merge(cpt_seq, 
-                 soldering_depth, 
-                 by = "sondering_id", 
-                 all.x = TRUE)
-# filter off where len > 1
-cpt_seq <- cpt_seq[len > 1]
-head(cpt_seq, 20) %>% kable()
 ```
 
 ```{r}
-cpt_seq[, layers := strsplit(col_seq, "\\|")]
+trend_vars <- paste0(value_vars, "_trend")
+# calculate trend by soldering id
+cpt_model_df[, (trend_vars) := lapply(.SD, function(x) extract_trend(x, freq = freq_from_depth(diepte))),
+              .SDcols = value_vars,
+              by = sondering_id
+              ]
+              
 
-# Extract all consecutive pairs per sondering
-pair_dt <- cpt_seq[, {
-  lyr <- unlist(layers)
-  if (length(lyr) < 2) {
-    data.table(from_layer = character(), to_layer = character())
-  } else {
-    data.table(
-      from_layer = lyr[-length(lyr)],
-      to_layer   = lyr[-1]
-    )
-  }
-}, by = sondering_id]
-
-pair_dt[, two_layers := paste(from_layer, to_layer, sep = " -> ")]
-kable(pair_dt[1:10])
-```
-
-```{r}
-#melt to get individual lirthostrat_id
-
-pair_dt_melt <- melt(pair_dt,
-                     id.vars = c("sondering_id", "two_layers"),
-                     measure.vars = c("from_layer", "to_layer"),
-                     variable.name = "layer_type",
-                     value.name = "lithostrat_id")
 ```
 
 
-
-
 ```{r}
-trimmed_mean <- function(x, trim = 0.1, ...) {
-  mean(x, trim = trim, ...)
-}
+
 
 dcast_cpt_wide <- function(dt,
                            value_cols,
                            depth_bin = "diepte_bin",
                            id_cols = c("sondering_id", "lithostrat_id"),
-                           agg_fun = trimmed_mean,
-                           fill_value = NA,
+                           agg_funs = list(
+                                           median =  function(x) median(x, na.rm = TRUE),
+                                           mean = function(x) mean(x, na.rm = TRUE),
+                                           q25 = function(x) quantile(x, 0.25, na.rm = TRUE),
+                                           q75 = function(x) quantile(x, 0.75, na.rm = TRUE),
+                                           min = function(x)  min(x, na.rm = TRUE),
+                                           max = function(x)  max(x, na.rm = TRUE)),
+                           fill_value = 0,
                            na_rm_cols = TRUE) {
   stopifnot(all(value_cols %in% names(dt)))
+  
+  if (is.function(agg_funs)) {
+    agg_funs <- list(custom = agg_funs)
+  }
+  if (is.null(names(agg_funs))) {
+    names(agg_funs) <- paste0("fn", seq_along(agg_funs))
+  }
+  
   wide_list <- lapply(value_cols, function(vcol) {
-    myformula <- as.formula(paste(
-      paste(id_cols,
-        collapse = "+"
-      ),
-      "~", depth_bin
-    ))
-
-    out <- data.table::dcast(
-      myformula,
-      value.var = vcol,
-      fun.aggregate = agg_fun,
-      na.rm = TRUE,
-      data = dt,
-      fill = fill_value
-    )
-    setnames(
-      out, setdiff(names(out), id_cols),
-      paste0(setdiff(
-        names(out),
-        id_cols
-      ), "_", vcol)
-    )
-    out
-  })
-  wide_dt <- Reduce(function(a, b) {
-    merge(a, b, by = id_cols, all = TRUE)
-  }, wide_list)
+    lapply(seq_along(agg_funs), function(i) {
+      fun <- agg_funs[[i]]
+      fun_nm <- names(agg_funs)[i]
+      cat(fun_nm)
+      out <- data.table::dcast(
+        formula = as.formula(paste(
+          paste(id_cols, collapse = "+"), "~", depth_bin
+        )),
+        value.var = vcol,
+        fun.aggregate = fun,
+        data = dt,
+        fill = fill_value
+      )
+      
+      data_cols <- setdiff(names(out), id_cols)
+      setnames(out, data_cols, paste0(data_cols, "_", vcol, "_", fun_nm))
+      out
+    })
+  }) |>
+    unlist(recursive = FALSE)
+  
+  wide_dt <- Reduce(function(a, b)
+    merge(a, b, by = id_cols, all = TRUE), wide_list)
+  
   if (na_rm_cols) {
     keep <- colSums(is.na(wide_dt)) < nrow(wide_dt)
     wide_dt <- wide_dt[, ..keep]
   }
+  
   wide_dt[]
 }
+
 
 # bins of one meter
 cpt_model_df <- cpt_model_df[!is.na(diepte)]
 cpt_model_df[, diepte_bin := cut(diepte,
   breaks = seq(
-    from = 0, to = max(diepte, na.rm = TRUE) + 5, by = 1
+    from = 0, to = max(diepte, na.rm = TRUE) + 5, by = .6
   ),
   include.lowest = TRUE
 )]
@@ -968,22 +950,26 @@ cpt_model_df[, diepte_bin := cut(diepte,
 #              by = sondering_id]
 
 
-value_vars <- c("rf_ratio", "qc", "qtn") # fs", "fr", "icn")
+value_vars <-c("qc", "fs", "rf", "qtn", "fr")
 
-value_vars <- c("rf_pctbutter_zero", "qcbutter_zero", "qtnbutter_zero", "frbutter_zero") 
-cpt_model_df1  <- merge(cpt_model_df,
-                       pair_dt_melt, 
-                       by = c("sondering_id", "lithostrat_id"),
-                       all.y = TRUE,
-                       allow.cartesian = TRUE)
 
-setorder(cpt_model_df1, sondering_id, -diepte)
 cpt_wide <- dcast_cpt_wide(cpt_model_df,
-  value_cols = value_vars,
+  value_cols = c(trend_vars),
+  depth_bin = "diepte_bin",
   id_cols = c("sondering_id", "lithostrat_id"),
-  fill_value = 0
+  agg_funs = list(
+    median = function(x) median(x, na.rm = TRUE),
+    mean = function(x) mean(x, na.rm = TRUE),
+    q25 = function(x) quantile(x, 0.25, na.rm = TRUE),
+    q75 = function(x) quantile(x, 0.75, na.rm = TRUE),
+    min = function(x) min(x, na.rm = TRUE),
+    max = function(x) max(x, na.rm = TRUE)
+  ),
+  fill_value = 0,
+  na_rm_cols = TRUE
 )
-cpt_wide <- cpt_wide[sondering_id %in% pair_dt$sondering_id]
+
+#cpt_wide <- cpt_wide[sondering_id %in% pair_dt$sondering_id]
 ```
 
 
@@ -1024,7 +1010,10 @@ widen_factor_indicators <- function(dt,
 
 
 
-factor_vars <- c("behavior", "soft_class")#"soft_class"
+factor_vars <- c("behavior", "rf_band", 
+                 "qc_band", "fr_band", 
+                 "qtn_band")
+
 cpt_wide_factors <- widen_factor_indicators(cpt_model_df, factor_vars)
 
 cpt_wide <- merge(cpt_wide, cpt_wide_factors,
@@ -1036,7 +1025,8 @@ cpt_wide <- merge(cpt_wide, cpt_wide_factors,
 
 
 ```{r}
-ggplot(cpt_wide, aes(x = lithostrat_id, fill = as.factor(lithostrat_id))) +
+ggplot(cpt_wide, aes(x = lithostrat_id,
+                     fill = as.factor(lithostrat_id))) +
   geom_bar() +
   labs(
     title = "Bar Plot of Lithostratigraphic Units",
@@ -1052,45 +1042,15 @@ ggplot(cpt_wide, aes(x = lithostrat_id, fill = as.factor(lithostrat_id))) +
 ```
 
 
-
-
-```{r, eval=FALSE}
-compress_to_other <- function(dt, col, min_count = 10, new_col = NULL) {
-  stopifnot(data.table::is.data.table(dt))
-  if (is.null(new_col)) new_col <- paste0(col, "_group")
-
-  counts <- dt[, .N, by = col]
-  rare_values <- counts[N < min_count][[col]]
-
-  dt[, (new_col) := get(col)]
-  if (length(rare_values)) {
-    dt[get(col) %in% rare_values, (new_col) := "Other"]
-  }
-  dt[, (new_col) := factor(get(new_col))]
-  invisible(dt)
-}
-
-
-compress_to_other(cpt_wide,
-  col = "lithostrat_id",
-  min_count = 10,
-  new_col = "lithostrat_id_group"
-)
-
-ggplot(cpt_wide, aes(x = lithostrat_id_group, fill = as.factor(lithostrat_id_group))) +
-  geom_bar() +
-  labs(
-    title = "Bar Plot of Lithostratigraphic Units",
-    x = "Lithostratigraphic Unit",
-    y = "Count",
-    fill = "Lithostratigraphic Unit"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "none",
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+```{r}
+# get freq by lithostrat_id
+litho_counts <- cpt_wide[, .N, by = lithostrat_id]
+# get lithostrat_id with more than 10 counts
+rare_litho <- litho_counts[N < 5, lithostrat_id]
+cpt_wide <- cpt_wide[!lithostrat_id %in% rare_litho,]
 ```
+
+
 
 
 ```{r}
@@ -1106,219 +1066,110 @@ cpt_wide <- cpt_wide[!is.na(lithostrat_id_group)]
 #save(cpt_wide, file = here(data_folder, "cpt_wide.rda"))
 # 1) Define features (drop ids/target)
 feat_cols <- setdiff(names(cpt_wide),
-                     c("sondering_id", "lithostrat_id", "lithostrat_id_group", "two_layers"))
-#  numeric matrix
-X <- as.matrix(cpt_wide[, ..feat_cols])
-storage.mode(X) <- "double"
+                     c("sondering_id", "lithostrat_id", 
+                       "lithostrat_id_group", "two_layers"))
 
-# 2) Encode labels 0..K-1 for xgboost
-cpt_wide[, y := as.integer(factor(lithostrat_id_group)) - 1L]
-label_levels <- levels(factor(cpt_wide$lithostrat_id_group))
-y <- cpt_wide$y
-num_class <- length(unique(y))
 
-# 3) Grouped 5-fold CV by sondering_id (sondering_id NOT in the model)
-set.seed(42)
-gfolds <- group_vfold_cv(
-  data = data.frame(id = seq_len(nrow(cpt_wide)),
-                    sondering_id = cpt_wide$sondering_id),
-  group = sondering_id,
-  v = 5
-)
+# feat_cols_quoted <- paste0("`", feat_cols, "`")
+# options(expressions = 50000)
+# model_formula <- as.formula(
+#   paste("lithostrat_id ~", paste(feat_cols, collapse = " + "))
+# )
 
-oof_prob <- matrix(NA_real_, nrow = nrow(X), ncol = num_class)
+```
 
-# 4) XGBoost params (sensible defaults; tune later)
-params <- list(
-  objective = "multi:softprob",
-  num_class = num_class,
-  max_depth = 5,
-  eta = 0.05,
-  subsample = 0.9,
-  colsample_bytree = 0.8,
-  eval_metric = "mlogloss",
-  tree_method = "hist"
-)
+```{r}
+ycol_xcols <- c("lithostrat_id", feat_cols, "sondering_id")
+cpt_model_df2 <- cpt_wide[, ..ycol_xcols]
+```
 
-for (sp in gfolds$splits) {
-  va_idx <- assessment(sp)$id
-  tr_idx <- analysis(sp)$id
-  dtr <- xgb.DMatrix(X[tr_idx, , drop = FALSE], label = y[tr_idx])
-  dva <- xgb.DMatrix(X[va_idx, , drop = FALSE], label = y[va_idx])
-  bst <- xgb.train(
-    params = params,
-    data = dtr,
-    nrounds = 400,
-    verbose = 0
+
+
+```{r, fitting_xgb, eval=TRUE}
+library(tidymodels)
+
+
+# build weights
+w_lookup <- cpt_model_df2 %>%
+  count(lithostrat_id, name = "n") %>%
+  mutate(w = max(n) / n)
+
+cpt_w <- cpt_model_df2 %>%
+  left_join(w_lookup, by = "lithostrat_id") %>%
+  mutate(wts = hardhat::importance_weights(w)) %>%
+  select(-w)
+```
+
+
+```{r}
+group_strat_split <- function(dt,
+                              id_col = "sondering_id",
+                              y_col = "lithostrat_id",
+                              prop = 0.7,
+                              tol = 0.05,
+                              max_tries = 200,
+                              seed = 42) {
+  setDT(dt)
+  ids_lab <- dt[, .(mode_class = names(which.max(table(get(
+    y_col
+  ))))), by = id_col]
+  full_counts <- dt[, .N, by = y_col]
+  
+  for (s in seq_len(max_tries)) {
+    set.seed(seed + s - 1)
+    spl <- initial_split(as.data.frame(ids_lab),
+                         prop = prop,
+                         strata = mode_class)
+    tr_ids <- training(spl)[[id_col]]
+    tr_dt  <- dt[get(id_col) %in% tr_ids]
+    tr_counts <- tr_dt[, .N, by = y_col]
+    chk <- tr_counts[full_counts, on = y_col][, pct := i.N / N][, all(abs(pct - prop) <= tol)]
+    
+    if (isTRUE(chk)) {
+      te_ids <- testing(spl)[[id_col]]
+      return(list(
+        train_ids = tr_ids,
+        test_ids = te_ids,
+        seed = seed + s - 1
+      ))
+    }
+  }
+  # fallback (last attempt)
+  list(
+    train_ids = tr_ids,
+    test_ids = testing(spl)[[id_col]],
+    seed = seed + max_tries - 1
   )
-  oof_prob[va_idx, ] <- matrix(predict(bst, dva), ncol = num_class, byrow = TRUE)
 }
 
-# 5) OOF evaluation
-oof_pred <- max.col(oof_prob) - 1L
-eval_dt <- data.table(
-  truth = factor(y, levels = 0:(num_class - 1), labels = label_levels),
-  pred  = factor(oof_pred, levels = 0:(num_class - 1), labels = label_levels)
-)
-
-metric_set <- yardstick::metric_set(accuracy,
-                                    kap, f_meas, 
-                                    recall, 
-                                    precision)
-
-kable(metric_set(eval_dt,
-                 truth = truth, 
-                 estimate = pred))
-
-
+res <- group_strat_split(cpt_w, prop = 0.7, tol = 0.05)
+train_dt <- cpt_w[sondering_id %in% res$train_ids]
+test_dt  <- cpt_w[sondering_id %in% res$test_ids]
 
 ```
 
 
 
 
-
 ```{r}
-# Confusion matrix:
-mt = conf_mat(eval_dt, 
-              truth = truth, 
-              estimate = pred)
-
-mt[[1]] |> kable()
-
-```
-
-
-```{r}
-bst_full <- xgb.train(
-  params = params,
-  data = xgb.DMatrix(X, label = y),
-  nrounds = 400,
-  verbose = 0
-)
-
-kable(xgb.importance(model = bst_full,
-                     feature_names = feat_cols))
-
-```
-
-
-```{r}
-
-setDT(eval_dt)
-
-cm_counts <- dcast(eval_dt[, .N, 
-                           by = .(truth, pred)], 
-                   truth ~ pred, value.var = "N", 
-                   fill = 0)
-kable(cm_counts)
-
-
-
-```
-
-
-
-```{r}
-
-pred_cols <- setdiff(names(cm_counts), "truth")
-cm_counts[, row_total := rowSums(.SD), .SDcols = pred_cols]
-cm_props <- copy(cm_counts)
-cm_props[, row_total := rowSums(.SD), .SDcols = pred_cols]
-cm_props[, (pred_cols) := lapply(.SD, function(x)
-  ifelse(row_total > 0, x / row_total, NA_real_)), .SDcols = pred_cols]
-
-kable(cm_props)
-
-```
-
-```{r}
-# melt by truth and row totals then filter
-cmprops_melt <- melt(cm_props,
-  id.vars = c("truth", "row_total"),
-  variable.name = "pred",
-  value.name = "prop"
-)
-
-# melt cm_counts by truth and row totals then ,erge with cmprops_melt
-cmcounts_melt <- melt(cm_counts,
-  id.vars = c("truth", "row_total"),
-  variable.name = "pred",
-  value.name = "count"
-)
-
-cm_melt <- merge(cmprops_melt, cmcounts_melt,
-  by = c("truth", "pred", "row_total"),
-  all.x = TRUE
-)
-# prop != 0
-cm_melt <- cm_melt[!is.na(prop) & prop > 0]
-kable(cm_melt)
-```
-
-
-
-
-```{r}
-
-library(tidymodels)
-library(workflowsets)
-library(doParallel)
-
-set.seed(42)
-
-# 
-# Ensure outcome is a factor
-
-# remove soil type with less than 5 samples
-
-litho_n <- cpt_wide[, .N, by = lithostrat_id]
-rare_litho <- litho_n[N < 5, lithostrat_id]
-cpt_wide <- cpt_wide[!lithostrat_id %in% rare_litho]
-cpt_wide <- cpt_wide[, lithostrat_id := as.factor(lithostrat_id)]
-
-# 
-id_cols <- c(
-             "lithostrat_id", "lithostrat_id_group",
-             "two_layers", "y")             
-
-# come up with x cols
-
-x_cols <- setdiff(names(cpt_wide),id_cols)
-
-## add back ticks 
-x_cols_quoted <- paste0("`", x_cols, "`")
-formula <- paste("lithostrat_id ~", 
-    paste(x_cols_quoted, collapse = " + ")) %>%
-  as.formula()
-
-
-# Grouped CV (no stratification in group_vfold_cv) 
-
-gfolds <- rsample::group_vfold_cv(cpt_wide, 
-                                  group = sondering_id, 
-                                  v = 5)
-
-
-
-
-# Trees don't need scaling, but step_zv helps remove single-valued cols
-rec <- recipe(formula, data = cpt_wide) |>
+# recipe: exclude wts from predictors in the formula (do not set case_weights role here)
+library(RBF)
+library(embed) 
+xgb_rec <- recipe(lithostrat_id ~ . , data = train_dt |> select(-n)) |>
   update_role(sondering_id, new_role = "group_id") |>
   step_rm(sondering_id) |>
-  step_zv()
-
-# Model specs
-rf_spec <- rand_forest(
-  mtry  = tune(),
-  min_n = tune(),
-  trees = 1000
-) |>
-  set_mode("classification") |>
-  set_engine("ranger", importance = "impurity", probability = TRUE)
+  step_zv(all_predictors()) |>
+  step_nzv(all_predictors()) |>
+  step_center(all_numeric_predictors()) |>
+  step_impute_median(all_numeric_predictors()) |>
+  step_normalize(all_numeric_predictors(), na_rm = TRUE) |>
+  step_scale(all_numeric_predictors()) |>
+  #step_corr(all_numeric_predictors(), threshold = 0.95) |>
+  step_pca(all_numeric_predictors(), num_comp = 200) 
+  #step_kpca(all_numeric_predictors(), num_comp = 50, kernel = "rbfdot", sigma = tune())
 
 xgb_spec <- boost_tree(
-  trees          = 1000,
+  trees          = 500,
   tree_depth     = tune(),
   learn_rate     = tune(),
   loss_reduction = tune(),
@@ -1329,120 +1180,466 @@ xgb_spec <- boost_tree(
   set_mode("classification") |>
   set_engine("xgboost")
 
-# Build workflows FIRST (required to extract parameter sets)
-wf_rf  <- workflow() |> add_recipe(rec) |> add_model(rf_spec)
-wf_xgb <- workflow() |> add_recipe(rec) |> add_model(xgb_spec)
+# Ranger Random Forest spec (supports case weights via workflow)
+rf_spec <- rand_forest(
+  trees = 500,
+  mtry  = tune(),
+  min_n = tune()
+) |>
+  set_mode("classification") |>
+  set_engine("ranger", importance = "permutation")
 
-# Extract tunable parameters from workflows
-rf_params  <- extract_parameter_set_dials(wf_rf)
-xgb_params <- extract_parameter_set_dials(wf_xgb)
+xgb_wf <- workflow() |>
+  add_recipe(xgb_rec) |>
+  add_model(xgb_spec)
 
-# Finalize unknown parameters (mtry, sample_size) using the training data
-rf_params  <- finalize(rf_params,  cpt_wide[, ..x_cols])
-xgb_params <- finalize(xgb_params, cpt_wide[, ..x_cols])
+# Attach case weights to the workflow
+xgb_wf_w <- xgb_wf |> add_case_weights(wts)
 
-# Generate grids
-rf_grid  <- grid_latin_hypercube(rf_params,  size = 20)
-xgb_grid <- grid_latin_hypercube(xgb_params, size = 30)
+# RF workflow (reuse same recipe)
+rf_wf <- workflow() |>
+  add_recipe(xgb_rec) |>
+  add_model(rf_spec)
 
-# Workflow set (for parallel tuning)
-wfs <- workflow_set(
-  preproc = list(base = rec),
-  models  = list(rf = rf_spec, xgb = xgb_spec)
-)
+# Attach case weights for RF
+rf_wf_w <- rf_wf |> add_case_weights(wts)
 
-multi_metrics <- yardstick::metric_set(
-  accuracy, 
-  bal_accuracy,
-  kap)
+```
 
 
-ctrl <- control_grid(
-  save_pred = TRUE, save_workflow = TRUE,
-  parallel_over = "resamples", allow_par = TRUE, verbose = TRUE
-)
 
+```{r}
 library(future)
 library(furrr)
 
-# Set up parallel backend (leave 4 cores free)
+# grouped CV
+set.seed(42)
+folds <- group_vfold_cv(cpt_w, group = sondering_id, v = 10)
+
+# params/grid
+xgb_params <- extract_parameter_set_dials(xgb_wf) |>
+  finalize(cpt_w |> dplyr::select(-lithostrat_id, -sondering_id, -wts, -n))
+
+xgb_grid <- grid_latin_hypercube(xgb_params, size = 5)
+
+# tune with weights (weights carried by the workflow)
+set.seed(42)
 plan(multisession, workers = parallel::detectCores() - 4)
-# Tune both models on the same resamples ---
-# Supply per-model grids using a named list that matches wfs$model labels
-# Tune RF
-rf_res <- tune_grid(
-  wf_rf,
-  resamples = gfolds,
-  grid      = rf_grid,
-  metrics   = multi_metrics,
-  control   = ctrl
+xgb_res <- tune_grid(
+  xgb_wf_w,
+  resamples = folds,
+  grid = xgb_grid,
+  metrics =yardstick::metric_set(accuracy, mn_log_loss),
+  control = control_grid(save_pred = TRUE)
 )
 
-# Tune XGBoost
-xgb_res <- tune_grid(
-  wf_xgb,
-  resamples = gfolds,
-  grid      = xgb_grid,
-  metrics   = multi_metrics,
-  control   = ctrl
+rf_params <- extract_parameter_set_dials(rf_wf) |>
+  finalize(cpt_w |> dplyr::select(-lithostrat_id, -sondering_id, -wts, -n))
+
+rf_grid <- grid_latin_hypercube(rf_params, size = 5)
+
+rf_res <- tune_grid(
+  rf_wf_w,
+  resamples = folds,
+  grid = rf_grid,
+  metrics = yardstick::metric_set(accuracy, mn_log_loss),
+  control = control_grid(save_pred = TRUE)
 )
 
 plan(sequential) # back to sequential
-# Best configs
-best_rf  <- select_best(rf_res,  metric = "accuracy")
-best_xgb <- select_best(xgb_res, metric = "accuracy")
-
-# Finalize workflows
-wf_rf_final  <- finalize_workflow(wf_rf,  best_rf)
-wf_xgb_final <- finalize_workflow(wf_xgb, best_xgb)
-
-# Refit for OOF predictions
-ctrl_oof <- control_resamples(save_pred = TRUE)
-
-rf_oof  <- fit_resamples(wf_rf_final,  resamples = gfolds, metrics = multi_metrics, control = ctrl_oof)
-xgb_oof <- fit_resamples(wf_xgb_final, resamples = gfolds, metrics = multi_metrics, control = ctrl_oof)
-
-# Collect metrics
-rf_metrics  <- collect_metrics(rf_oof)  |> mutate(model = "ranger")
-xgb_metrics <- collect_metrics(xgb_oof) |> mutate(model = "xgboost")
-
-oof_metrics <- bind_rows(rf_metrics, xgb_metrics) |> arrange(.metric, desc(mean))
-
-# Confusion matrices
-rf_preds  <- collect_predictions(rf_oof)
-xgb_preds <- collect_predictions(xgb_oof)
-
-rf_cm  <- conf_mat(rf_preds,  truth = lithostrat_id, estimate = .pred_class)
-xgb_cm <- conf_mat(xgb_preds, truth = lithostrat_id, estimate = .pred_class)
-
-
-
+# final fit (weights carried by the workflow)
 
 
 ```
 
+
+
+
+
+#### xgb metrics
+
+```{r}
+xgb_metrics <- collect_metrics(xgb_res)
+kable(xgb_metrics)
+
+```
+
+#### rf metrics
+
+```{r}
+rf_metrics <- collect_metrics(rf_res)
+kable(rf_metrics)
+
+```
+
+```{r}
+cmp <- bind_rows(
+  xgb_metrics |> dplyr::mutate(model = "xgb"),
+  rf_metrics  |> dplyr::mutate(model = "ranger")
+)
+
+cmp_summary <- cmp |>
+  dplyr::group_by(model, .metric) |>
+  dplyr::summarize(mean = mean(mean), std_err = mean(std_err), .groups = "drop") |>
+  dplyr::arrange(.metric, dplyr::desc(mean))
+
+knitr::kable(cmp_summary)
+
+```
+
+
+
+#### Final fit and predictions
+
 ```{r}
 
-oof_metrics
+xgb_fit <- finalize_workflow(xgb_wf_w, select_best(xgb_res, metric = "mn_log_loss")) |>
+  fit(data = train_dt)
+xgb_preds_prob <- predict(xgb_fit, new_data = test_dt, type = "prob")
+xgb_preds_class <- predict(xgb_fit, new_data = test_dt)
+
+
+
+cpt_model_pred_xgb <- bind_cols(
+  test_dt[, .(sondering_id, lithostrat_id)],
+  xgb_preds_class,
+  xgb_preds_prob
+)
+
+```
+
+#### Metrics with Yardstick
+
+```{r}
+library(yardstick)
+
+cpt_model_pred_xgb[, lithostrat_id := factor(lithostrat_id,
+  levels = unique(cpt_wide$lithostrat_id)
+)]
+cpt_model_pred_xgb[, .pred_class := factor(.pred_class,
+  levels = unique(cpt_wide$lithostrat_id)
+)]
+yardstick::conf_mat(
+  data = cpt_model_pred_xgb,
+  truth = lithostrat_id,
+  estimate = .pred_class
+)
+```
+
+```{r}
+# xgb accuracy, auc, roc, balanced accuracy
+metrics_set <- yardstick::metric_set(accuracy, bal_accuracy)
+
+xgb_eval <- metrics_set(
+  data = cpt_model_pred_xgb,
+  truth = lithostrat_id,
+  estimate = .pred_class
+)
+knitr::kable(xgb_eval)
+```
+
+
+
+
+
+```{r}
+rf_fit <- finalize_workflow(rf_wf_w, select_best(rf_res, metric = "mn_log_loss")) |>
+    fit(data = train_dt)
+rf_preds_prob <- predict(rf_fit, new_data = test_dt, type = "prob")
+rf_preds_class <- predict(rf_fit, new_data = test_dt)
+cpt_model_pred_rf <- bind_cols(
+    test_dt[, .(sondering_id, lithostrat_id)],
+    rf_preds_class,
+    rf_preds_prob
+)
+```
+
+```{r}
+cpt_model_pred_rf[, lithostrat_id := factor(lithostrat_id,
+    levels = unique(cpt_wide$lithostrat_id)
+)]
+cpt_model_pred_rf[, .pred_class := factor(.pred_class,
+    levels = unique(cpt_wide$lithostrat_id)
+)]
+conf_mat_xgb <- yardstick::conf_mat(
+    data = cpt_model_pred_rf,
+    truth = lithostrat_id,
+    estimate = .pred_class
+)
+
+```
+
+
+
+```{r}
+# Long-format confusion with per-truth rates and per-class accuracy (diagonal) — data.table
+cm_dt <- as.data.table(as.data.frame(conf_mat_xgb$table))
+setnames(cm_dt, c("Prediction", "Truth", "Freq"),
+               c("predicted_class", "lithostrat_id", "n"))
+
+# Rate of each predicted class within each true lithostrat_id
+cm_dt[, total := sum(n), by = .(lithostrat_id)]
+cm_dt[, rate  := fifelse(total > 0, n/total, NA_real_)]
+
+# Per-soil-type prediction accuracy (diagonal proportion)
+per_class_accuracy_rf <- cm_dt[predicted_class == lithostrat_id,
+  .(lithostrat_id, predicted_class, accuracy = rate, sample_size = total)
+]
+
+knitr::kable(per_class_accuracy_rf, caption = "Per-class prediction accuracy (RF)")
+```
+```
+
+
+```{r}
+# rf accuracy, auc, roc, balanced accuracy
+metrics_set <- yardstick::metric_set(accuracy, bal_accuracy)
+
+rf_eval <- metrics_set(
+  data = cpt_model_pred_rf,
+  truth = lithostrat_id,
+  estimate = .pred_class
+)
+knitr::kable(rf_eval)
+```
+
+### Error Analaysis
+
+#### Get misclassified drillings in XGB
+```{r}
+xgb_misclass <- cpt_model_pred_xgb[lithostrat_id != .pred_class]
+fwrite(xgb_misclass, file = here(
+    results_folder,
+    "missclasified_cpt_model_predictions_xgb.csv"
+))
+knitr::kable(xgb_misclass)
 
 ```
 
 
 ```{r}
-rf_cm 
+#  names(pair_dt_melt)
+# [1] "sondering_id"  "lithostrat_id" "two_layers"    "layer_type"    "min_depth"     "max_depth"     "obs"           "expected_obs"
+pairdt_missclass <- merge(
+    xgb_misclass[, .(sondering_id, lithostrat_id, .pred_class)],
+    pair_dt_melt,
+    by = c("sondering_id", "lithostrat_id"),
+    all.x = TRUE
+)
+
+fwrite(pairdt_missclass, file = here(
+    results_folder,
+    "missclasified_cpt_model_profiles_xgb.csv"
+))
 ```
 
 
-```{r}
-xgb_cm
+```{r, eval=FALSE}
+
+library(keras3)
+
+
+# ---- Inputs
+dt <- as.data.table(cpt_model_df)
+
+dt <- dt[!lithostrat_id %in% rare_litho]
+
+```{r, eval=FALSE}
+
+library(keras3)
+
+
+# ---- Inputs 
+dt <- as.data.table(cpt_model_df) 
+
+dt <- dt[!lithostrat_id %in% rare_litho]
+setorder(dt, sondering_id, diepte)
+
+feat_cols <- c("qc", "fs", "rf", "qtn", "fr") # input features
+
+# extract trend (group-wise frequency from depth; robust to short series)
+dt[, fd := freq_from_depth(diepte), by = sondering_id]
+dt[, (feat_cols) := lapply(.SD, function(v) extract_trend(v, freq = fd[1L])),
+  .SDcols = feat_cols,
+  by = sondering_id
+]
+dt[, fd := NULL]
+
+label_col <- "lithostrat_id"   # per-depth factor label
+id_col    <- "sondering_id"
+
+# ---- Encode labels 0..K-1 (sparse) ----
+dt[, (label_col) := as.factor(get(label_col))]
+lab_levels <- levels(dt[[label_col]])
+num_class  <- length(lab_levels)
+# Reserve 0 for pads; real labels 1..K
+dt[, y_id := as.integer(get(label_col))]   # 1..K integers
+num_out <- num_class + 1L                  # output units include pad index 0
+
+# ---- Train/valid split by sondering_id (keep groups intact) ----
+set.seed(42)
+ids   <- unique(dt[[id_col]])
+tr_ids <- sample(ids, size = round(0.8 * length(ids)))
+va_ids <- setdiff(ids, tr_ids)
+
+train_dt <- dt[get(id_col) %in% tr_ids]
+valid_dt <- dt[get(id_col) %in% va_ids]
+
+# ---- Z-score scaling with train statistics ----
+mu  <- train_dt[, lapply(.SD, mean, na.rm = TRUE), .SDcols = feat_cols]
+sdv <- train_dt[, lapply(.SD, function(x) sd(x, na.rm = TRUE) + 1e-8), .SDcols = feat_cols]
+
+train_scaled <- copy(train_dt)
+valid_scaled <- copy(valid_dt)
+
+# apply per-feature z-score using train means/sds
+train_scaled[, (feat_cols) := lapply(feat_cols, function(nm) (get(nm) - mu[[nm]]) / sdv[[nm]])]
+valid_scaled[, (feat_cols) := lapply(feat_cols, function(nm) (get(nm) - mu[[nm]]) / sdv[[nm]])]
+setorderv(train_scaled, c(id_col, "diepte"))
+setorderv(valid_scaled, c(id_col, "diepte"))
+
+build_tensors <- function(dt, feat_cols, id_col, T_pad = NULL) {
+  dt <- copy(dt)
+  dt[, t_idx := seq_len(.N), by = id_col]
+  if (is.null(T_pad)) {
+    T_pad <- dt[, max(t_idx)]
+  }
+
+  id_levels <- dt[, unique(get(id_col))]
+  dt[, id_factor := factor(get(id_col), levels = id_levels)]
+
+  N <- length(id_levels)
+  F <- length(feat_cols)
+
+  feat_long <- melt(
+    dt,
+    id.vars = c("id_factor", "t_idx"),
+    measure.vars = feat_cols,
+    variable.name = "feature",
+    variable.factor = FALSE,
+    value.name = "value"
+  )
+  feat_long[, feature_idx := match(feature, feat_cols)]
+
+  X <- array(0, dim = c(N, T_pad, F))
+  X[cbind(
+    as.integer(feat_long$id_factor),
+    pmin(feat_long$t_idx, T_pad),
+    feat_long$feature_idx
+  )] <- feat_long$value
+
+  index_core <- cbind(as.integer(dt$id_factor), pmin(dt$t_idx, T_pad))
+  y <- array(0L, dim = c(N, T_pad))
+  y[index_core] <- dt$y_id
+  w <- array(0, dim = c(N, T_pad))
+  w[index_core] <- 1
+
+  list(X = X, y = y, w = w, T_max = T_pad, F = F, ids = id_levels)
+}
+
+train_lengths <- train_scaled[, .N, by = id_col]
+valid_lengths <- valid_scaled[, .N, by = id_col]
+T_pad <- max(c(train_lengths$N, valid_lengths$N))
+
+train_arr <- build_tensors(train_scaled, feat_cols, id_col, T_pad)
+valid_arr <- build_tensors(valid_scaled, feat_cols, id_col, T_pad)
+
+X_tr <- train_arr$X
+y_tr <- train_arr$y
+w_tr <- train_arr$w
+
+X_va <- valid_arr$X
+y_va <- valid_arr$y
+w_va <- valid_arr$w
+
+T_max <- T_pad
+F_in  <- length(feat_cols)
+
+#Class-balanced sample weights (mask pads + upweight rare labels) ----
+train_counts <- train_scaled[, .N, by = y_id]
+# Build class weights for indices 0..K (0=pad placeholder)
+cw <- rep(1, num_out)
+cw[train_counts$y_id + 1L] <- max(train_counts$N) / train_counts$N
+# normalize weights over real classes (ignore pad at index 1)
+cw <- cw / mean(cw[-1L])
+sw_tr <- cw[y_tr + 1L] * w_tr
+sw_va <- cw[y_va + 1L] * w_va
+# ensure numeric dtype for Keras
+storage.mode(sw_tr) <- "double"
+storage.mode(sw_va) <- "double"
+
+# Define a compact, R-ish LSTM model 
+build_model <- function(T_max, F_in, num_out,
+                        units = 128L, dropout = 0.2, lr = 5e-4) {
+  input <- layer_input(shape = c(T_max, F_in), name = "seq")
+  output <- input |>
+    layer_lstm(units = units, return_sequences = TRUE, name = "lstm") |>
+    layer_dropout(rate = dropout, name = "drop") |>
+    layer_dense(units = num_out, activation = "softmax", name = "out")
+
+  model <- keras_model(input, output)
+  model |> compile(
+    optimizer = optimizer_adam(learning_rate = lr),
+    loss      = "sparse_categorical_crossentropy",
+    metrics   = "accuracy"
+  )
+  model
+}
+
+model <- build_model(T_max, F_in, num_out)
+
+#Fit (masking via sample weights to ignore padding) ----
+hist <- model |> fit(
+  x = X_tr, y = y_tr,
+  sample_weight = sw_tr,
+  validation_data = list(X_va, y_va, sw_va),
+  epochs = 80,
+  batch_size = 64,
+  callbacks = list(
+    callback_early_stopping(monitor = "val_loss", ``patience = 8, restore_best_weights = TRUE),
+    callback_reduce_lr_on_plateau(monitor = "val_loss", factor = 0.5, patience = 4, min_lr = 1e-5)
+  )
+)
+
+## Sanity checks and evaluation
+# Pads must align with zero weights
+stopifnot(all((w_tr == 0) == (y_tr == 0)))
+stopifnot(all((w_va == 0) == (y_va == 0)))
+
+# Evaluate per-depth (flatten valid, drop pads; ignore predicted pad=0)
+p_va <- model |> predict(X_va)
+yhat_va <- apply(p_va, c(1,2), which.max) - 1L   # 0..K where 0=pad
+
+mask <- as.vector(w_va) == 1
+truth_idx <- as.vector(y_va)[mask]               # 1..K
+pred_idx  <- as.vector(yhat_va)[mask]            # 0..K
+
+# drop any predictions of pad (0) on real steps
+keep <- pred_idx > 0L
+truth_idx <- truth_idx[keep]
+pred_idx  <- pred_idx[keep]
+
+eval_dt <- data.table(
+  truth = factor(truth_idx, levels = 1:num_class, labels = lab_levels),
+  pred  = factor(pred_idx,  levels = 1:num_class, labels = lab_levels)
+)
+
+# quick pad fractions
+pad_frac_tr <- mean(as.vector(w_tr) == 0)
+pad_frac_va <- mean(as.vector(w_va) == 0)
+print(c(pad_frac_tr = pad_frac_tr, pad_frac_va = pad_frac_va))
+
+
 ```
 
-```{r}
-#
-oof_wide <- oof_metrics |>
-  dplyr::select(model, .metric, mean, n, std_err) |>
-  tidyr::pivot_wider(names_from = model, values_from = c(mean, std_err, n))
+```{r, eval=FALSE}
+metric_set <- yardstick::metric_set(accuracy,
+                                    kap, f_meas, 
+                                    recall, 
+                                    precision)
 
-kable(oof_wide)
+kable(metric_set(eval_dt,
+                 truth = truth, 
+                 estimate = pred))
 ```
 
