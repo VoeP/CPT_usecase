@@ -15,7 +15,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 
 # %%
 
-# duplicates analysis
+# # duplicates analysis
 
 # ID_COL = "index"
 # KEY = ['sondeernummer', 'diepte']
@@ -39,7 +39,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 # )
 
 # multiple_label_keys = n_labels_per_key.index[n_labels_per_key > 1]    # multi-label keys
-# single_label_keys = n_labels_per_key.index[n_labels_per_key = =  1]     # duplicated keys but single label
+# single_label_keys = n_labels_per_key.index[n_labels_per_key ==  1]     # duplicated keys but single label
 
 # # map row-wise: is this row in the duplicate-keys count?
 # rows_in_multiple_label_keys = df.set_index(KEY).index.isin(multiple_label_keys)
@@ -60,7 +60,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 # # confirm that the duplicated index actually differs in LABEL for multiple-label rows
 # def index_group_has_label_conflict(g):
 #     # same KEY?
-#     same_key = (g[KEY].nunique(dropna = False) = =  1).all()
+#     same_key = (g[KEY].nunique(dropna = False) ==  1).all()
 #     # label conflict?
 #     lab_conf = g[LABEL].nunique(dropna = False) > 1
 #     return bool(same_key and lab_conf)
@@ -79,7 +79,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 
 # # true only if all columns have unique values -> would need different index
 # def unique_values_cols(g):
-#     return (g.nunique(dropna = False) < =  1).all()
+#     return (g.nunique(dropna = False) <=  1).all()
 # index_unexplained_identical = (
 #     index_unexplained_df
 #     .groupby(ID_COL)
@@ -96,7 +96,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 #     # identical if all non-key columns identical
 #     non_key_cols = [c for c in df.columns if c not in KEY]
 #     varying = (g[non_key_cols].nunique(dropna = False) > 1).sum()
-#     return varying = =  0
+#     return varying ==  0
 
 # # boolean flag true if identical
 # singlelabel_flag = (
@@ -130,19 +130,19 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 # if n_index_dup_explained > 0:
 #     ix = df.loc[index_dup_explained, ID_COL].iloc[0]
 #     print(f"\nExample INDEX value explained by conflict: {ix!r}")
-#     print(df[df[ID_COL] = =  ix].sort_values(KEY).head())
+#     print(df[df[ID_COL] ==  ix].sort_values(KEY).head())
 
 # # example unexplained index-duplicate
 # if n_index_dup_unexplained > 0:
 #     ix2 = df.loc[index_dup_unexplained, ID_COL].iloc[0]
 #     print(f"\nExample UNEXPLAINED INDEX duplicate: {ix2!r}")
-#     print(df[df[ID_COL] = =  ix2].sort_values(KEY).head())
+#     print(df[df[ID_COL] ==  ix2].sort_values(KEY).head())
 
 # # example key-duplicate not in index-duplicates
 # if n_key_dup_not_index_dup > 0:
 #     ex_key = df.loc[key_dup_not_index_dup, KEY].iloc[0].to_dict()
 #     print(f"\nExample KEY duplicate not tied to index-dup: {ex_key}")
-#     print(df[(df['sondeernummer'] = =  ex_key['sondeernummer']) & (df['diepte'] = =  ex_key['diepte'])].head())
+#     print(df[(df['sondeernummer'] ==  ex_key['sondeernummer']) & (df['diepte'] ==  ex_key['diepte'])].head())
 
 # %%
 
@@ -463,7 +463,7 @@ print(f"Total unique tiles: {n_tiles}")
 
 # randomly choose 20 % of tiles for train - maybe exclude adjacent tiles from test later or increase train
 rng = np.random.default_rng(42)
-train_tile_count = max(1, int(np.ceil(n_tiles * 0.20))) # 20 %
+train_tile_count = max(1, int(np.ceil(n_tiles * 0.30))) # 30 %
 all_tiles = feat["tile"].unique()
 train_tiles = set(rng.choice(all_tiles, size = train_tile_count, replace = False))
 test_tiles  = set(all_tiles) - train_tiles
@@ -644,15 +644,36 @@ print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending =
 
 # combine spatial model with features
 # for now, choose drilling measurements (qc, fs - cone and sleeve resistance), the respective vertical changes, geological data (thickness, elevation)
+
+# added this part after the csv was uploaded
+eps = 1e-6
+for df in (feat_train, feat_test):
+    df["rf_mean"] = 100.0 * (df["fs_mean"] / (df["qc_mean"] + eps))
+    df["log_qc_mean"] = np.log(np.maximum(df["qc_mean"], eps))
+    df["log_rf_mean"] = np.log(np.maximum(df["rf_mean"], eps))
+
+# modification after csv: add rf_mean, logs
 feat_cols = [
     "qc_mean", "fs_mean",
+    "rf_mean",
     "qc_d_dz_mean", "fs_d_dz_mean",
-    "thickness", "mean_depth_mtaw"
+    "thickness",
+    "log_qc_mean", "log_rf_mean"
 ]
 
-# calculating z-scores   
-mu = feat_train[feat_cols].mean(numeric_only = True)
-sd = feat_train[feat_cols].std(ddof = 1, numeric_only = True).replace(0,1)
+min_thickness = 0.5  # meters
+feat_train_f = feat_train[feat_train["thickness"] >= min_thickness].copy()
+feat_test_f  = feat_test[ feat_test["thickness"]  >= min_thickness].copy()
+
+# modified the mu, sd calc after the Q&A: option to drop thin layers
+mu = feat_train_f[feat_cols].mean(numeric_only=True)
+sd = feat_train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
+z_scores_train = ((feat_train_f[feat_cols] - mu) / sd)
+
+# calculating z-scores
+# # standard calc (without removing thin layers)   
+# mu = feat_train[feat_cols].mean(numeric_only = True)
+# sd = feat_train[feat_cols].std(ddof = 1, numeric_only = True).replace(0,1)
 z_scores_train = ((feat_train[feat_cols].fillna(mu)) - mu) / sd
 z_scores_test  = ((feat_test[feat_cols].fillna(mu)) - mu) / sd
 
@@ -664,15 +685,50 @@ feat_test_reset  = feat_test.reset_index(drop = True)
 train_feat_mat = z_scores_train.to_numpy(dtype = float)
 test_feat_mat  = z_scores_test.to_numpy(dtype = float)
 
-def inv_weight(d):
+# adding label certainty as weight
+# certainty_scale = {"low": 0.5, "medium": 1.0, "high": 2.0, "very high": 6.0}
+# label_certainty = {
+#     "Quartair": "low",
+#     "Diest": "medium",
+#     "Bolderberg": "medium",
+#     "Sint_Huibrechts_Hern": "medium",
+#     "Ursel": "high",
+#     "Asse": "high",
+#     "Wemmel": "high",
+#     "Lede": "high",
+#     "Brussel": "high",
+#     "Merelbeke": "very high",
+#     "Kwatrecht": "high",
+#     "Mont_Panisel": "high",
+#     "Aalbeke": "very high",
+#     "Mons_en_Pevele": "very high",
+# }
+# certainty_weight = {lab: certainty_scale[label_certainty[lab]]
+#     for lab in label_certainty}
+
+certainty_weight = None # not using label certainty weighting
+
+def inv_weight(d, labels = None, certainty_weights = None):
     d = np.asarray(d, dtype = float)
-    return 1.0 / (d + 1.0)
+    w = 1.0 / (d + 1.0)
+    # additional for label weighting, turns out that label weighting did not improve the model
+    # made it into a conditional statement instead
+    if labels is not None and certainty_weights is not None:
+        cw = np.array([float(certainty_weights.get(lab, 1.0)) for lab in labels], dtype=float)
+        w *= cw
+    return w
 
 def predict_label_hybrid(
     row,
     feat_train,
     z_scores_train,
-    feat_cols, mu, sd, k = 5, tau = None, alpha = 1.0, beta = 1.0, x_sd = None, y_sd = None):
+    feat_cols, mu, sd,
+    k = 5, tau = 5.0, alpha = 1.0, beta = 1.0,
+    x_sd = None, y_sd = None,
+    certainty_weights = None, # addition for label certainty weighting
+    tau_max = None, tau_multi = 1.5 # addition for adaptive tau:
+    # instead of removing tau filter entirely if no data with similar tau is available, rather expand tau
+):
 
     # using spatial scaling (with sds from train and fallback to 1.0) - introduced after initial model assessment
     if x_sd is None:
@@ -688,14 +744,24 @@ def predict_label_hybrid(
 
     # similar elevation requirement
     mean_mtaw_q = float(row["mean_depth_mtaw"])
-    elev_diff_all = np.abs(feat_train["mean_depth_mtaw"].to_numpy(dtype = float) - mean_mtaw_q)
-    mask = elev_diff_all <=  float(tau)
+    elev_diff_all = np.abs(feat_train["mean_depth_mtaw"].to_numpy(float) - mean_mtaw_q)
+
+    if tau is None:
+        tau_current = 0.0
+    else:
+        tau_current = float(tau)
+    tau_cap  = float(tau_max) if tau_max is not None else (tau_current if tau_current > 0 else 1.0) * 5.0
+
+    while True:
+        mask = elev_diff_all <= tau_current
+        if np.count_nonzero(mask) >= max(1, k) or tau_current >= tau_cap:
+            break
+        tau_current *= tau_multi  # expand window
+    
     if not np.any(mask):
-        # choose k (or all if fewer) smallest elevation diffs
-        k_elev = min(int(k), len(feat_train))
-        # indices of k smallest elev diffs
-        nn_local_index = np.argpartition(elev_diff_all, kth = k_elev - 1)[:k_elev]
-        mask = np.zeros(len(feat_train), dtype = bool)
+        k_all = min(int(k), len(feat_train))
+        nn_local_index = np.argpartition(elev_diff_all, kth=k_all-1)[:k_all]
+        mask = np.zeros(len(feat_train), dtype=bool)
         mask[nn_local_index] = True
 
     # row vectors
@@ -714,9 +780,10 @@ def predict_label_hybrid(
     nn_local_index = np.argpartition(d_combo_sub, kth = k_eff - 1)[:k_eff]
     train_indices = np.flatnonzero(mask)[nn_local_index]
 
-    w = inv_weight(d_combo_sub[nn_local_index])
-
     labels = feat_train.iloc[train_indices]["layer_label"].to_numpy()
+    d_only_nn = d_combo_sub[nn_local_index]
+    w = inv_weight(d_only_nn, labels=labels, certainty_weights=certainty_weights)
+
     weights_by_label = {}
     for lab, wi in zip(labels, w):
         weights_by_label[lab] = weights_by_label.get(lab, 0.0) + float(wi)
@@ -733,7 +800,8 @@ def eval_hybrid_row_pred(
     tau_list = (2.0,3.0,5.0),
     alpha_list = (0.5,1.0,2.0),
     beta_list = (0.5,1.0,2.0),
-    x_sd = None, y_sd = None
+    x_sd = None, y_sd = None,
+    certainty_weights = None # addition for label certainty weighting
 ):
     seen = set(feat_train["layer_label"])
     test_set = feat_test[feat_test["layer_label"].isin(seen)].copy()
@@ -750,7 +818,8 @@ def eval_hybrid_row_pred(
                             z_scores_train = z_scores_train,   # DF or ndarray OK
                             feat_cols = feat_cols, mu = mu, sd = sd,
                             k = k, tau = tau, alpha = alpha, beta = beta,
-                            x_sd = x_sd, y_sd = y_sd
+                            x_sd = x_sd, y_sd = y_sd,
+                            certainty_weights = certainty_weights
                         ),
                         axis = 1
                     )
@@ -774,7 +843,8 @@ print(eval_hybrid_row_pred(
         tau_list = (1.0,2.0,3.0,5.0),
         alpha_list = (0.0,1.0,2.0),
         beta_list = (0.0,1.0,2.0),
-        x_sd = x_sd, y_sd = y_sd
+        x_sd = x_sd, y_sd = y_sd, 
+        certainty_weights = certainty_weight
     ).to_string(index = False)
 )
 
@@ -788,7 +858,8 @@ feat_test["pred_hybrid"] = feat_test.apply(
         feat_cols = feat_cols, mu = mu, sd = sd,
         k = 3, tau = 5.0,
         alpha = 1.0, beta = 1.0,
-        x_sd = x_sd, y_sd = y_sd
+        x_sd = x_sd, y_sd = y_sd,
+        certainty_weights = certainty_weight
     ),
     axis = 1
 )
@@ -797,7 +868,7 @@ feat_test["pred_hybrid"] = feat_test.apply(
 mask_seen = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
 if mask_seen.any():
     acc = (feat_test.loc[mask_seen, "pred_hybrid"] ==  feat_test.loc[mask_seen, "layer_label"]).mean()
-    print(f"Hybrid kNN (k = 5, tau = 2m, alpha = 0, beta = 1) accuracy on seen-label subset: {acc:.3f}")
+    print(f"Hybrid kNN (k = 5, tau = 2m, alpha = 1, beta = 1) accuracy on seen-label subset: {acc:.3f}")
 else:
     print("None of the test labels are present in train.")
 
