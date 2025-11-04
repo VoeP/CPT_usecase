@@ -678,6 +678,15 @@ control behavior:</p></li>
 vw_cpt_brussels_params_completeset_20250318_remapped.parquet);</li>
 <li>results_folder sets the output folder for processed CSVs.</li>
 </ul>
+<h4 id="traintest-split-reproduction">Train/test split reproduction</h4>
+<p>If you prefer to work on raw (unbinned) CPT rows, you can still
+reproduce the exact train/test split by loading results/split_res.pkl
+(pickled dict with keys train_ids and test_ids) and filtering your
+dataset by sondering_id accordingly. This guarantees consistency with
+the split used to generate the binned outputs.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="im">import</span> pickle</span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="cf">with</span> <span class="bu">open</span>(<span class="st">&quot;results&quot;</span> <span class="op">/</span> <span class="st">&quot;split_res.pkl&quot;</span>, <span class="st">&quot;rb&quot;</span>) <span class="im">as</span> f:</span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    loaded <span class="op">=</span> pickle.load(f)</span></code></pre></div>
 
 </body>
 </html>

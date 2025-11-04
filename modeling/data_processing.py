@@ -10,7 +10,7 @@ PDS Model — Python conversion focused on preprocessing only:
 - Train/test split of sondering_id (stratified by dominant class)
 - Output: data modeling_features_df.csv
 """
-
+import pickle
 from pathlib import Path
 from collections import Counter
 import argparse
@@ -263,6 +263,8 @@ def process_cpt_data(
 
     print("Train IDs:", len(train_ids))
     print("Test   IDs:", len(test_ids))
+    with open(results_folder / "split_res.pkl", "wb") as f:
+        pickle.dump(split_res, f)
 
     # optional trend extraction
     if do_extract_trend:
