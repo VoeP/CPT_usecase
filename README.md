@@ -1,0 +1,88 @@
+CPT USECASE GitHub Document
+================
+
+## CPT usecase
+
+modeling/ contains notebooks and scripts for model building
+
+dashbord/ contains streamlit dashboard scripts
+
+You need to add your aboslute paths to the paths_cpt_file for it to run.
+You need to define PATH_TO_PARQUET = “” and PATH_TO_MODEL =““. The idea
+there is that we can change this logic later to use environment
+variables instead to run this in different environments. For the
+dashboard to work, you need to also create the pickle of the model by
+running the EDA.ipynb (or whatever other method).
+
+## Data Processing
+
+### The binning method
+
+The goal is to turn noisy CPT measurements along depth into clean,
+comparable slices (bins) with summary features.
+
+- What we bin
+
+  - For each borehole (sondering_id), measurements are taken at depths
+    (diepte) for signals like qc, fs, rf, qtn, fr.
+
+- How bins are built
+
+  - We create fixed-depth intervals from 0 to the maximum depth using a
+    bin width bin_w (default 0.6 m).
+  - Each row is assigned to one depth_bin (include_lowest=True,
+    ordered).
+
+- What we compute per bin
+
+  - For each borehole × bin, we summarize available signals summary
+    stats:
+
+    - mean, standard deviation, interquartile range, median, MAD
+    - percentiles (10th, 50th, 90th)
+    - coefficient of variation (std/mean, guarded when mean≈0)
+
+  - We also compute QC “spike” features for qc:
+
+    - fraction and count above 20 and 40 (TH_QC20, TH_QC40)
+    - 99th percentile (p99)
+
+- Lithostrat label per bin
+
+  - Each bin gets a single lithostrat_id based on the records that fall
+    inside that interval (one label per borehole × bin).
+
+- Optional trend cleaning before binning
+
+  - If enabled, each signal is de-trended per borehole using seasonal
+    decomposition (additive or multiplicative), with a fallback to a
+    rolling mean. Missing and infinite values are forward/backward
+    filled.
+
+- Why binning
+
+  - Reduces noise,
+
+  Run the preprocessing from the repo root with optional flags to
+  control behavior:
+
+``` bash
+python modeling/data_processing.py --extract_trend True --bin_w 0.6 --seed 42 --trend_type additive --data_folder data --results_folder results
+```
+
+- To run with default parameters, simply run:
+
+``` bash
+python modeling/data_processing.py
+```
+
+Arguments:
+
+- extract_trend toggles per-borehole detrending;
+- bin_w sets bin size in meters;
+- seed controls the reproducible train/test split;
+- trend_type selects the decomposition model (“additive” or
+  “multiplicative”);
+- data_folder points to the input folder containing the parquet (expects
+  vw_cpt_brussels_params_completeset_20250318_remapped.parquet);
+- results_folder sets the output folder for processed CSVs.
