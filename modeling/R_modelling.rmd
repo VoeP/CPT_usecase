@@ -1,0 +1,404 @@
+---
+title: "Modelling CPT lithostratigraphy with R"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                        message = FALSE,
+                        warning = FALSE)
+
+SET_SEED <- 42
+size_tune <- 10 # number of hyperparameter combinations to try per model
+
+```
+
+
+### Functions
+
+```{r}
+# Tune model hyperparameters
+tune_model <- function(workflow, folds, grid) {
+    set.seed(SET_SEED)
+    plan(multisession, workers = parallel::detectCores() - 4)
+    tune_results <- tune_grid(
+        workflow,
+        resamples = folds,
+        grid = grid,
+        metrics = yardstick::metric_set(accuracy, mn_log_loss),
+        control = control_grid(save_pred = TRUE)
+    )
+    plan(sequential) # back to sequential
+    tune_results
+}
+
+# Fit best model from tuning results
+fit_best_model <- function(
+    workflow,
+    tune_results,
+    train_data,
+    metric = "mn_log_loss") {
+    finalize_workflow(
+        workflow,
+        select_best(tune_results,
+            metric = metric
+        )
+    ) |>
+        fit(data = train_data)
+}
+
+
+# Evaluate model and return predictions with metrics
+evaluate_model <- function(
+    fitted_model,
+    test_data,
+    train_data,
+    id_col = "sondering_id",
+    cols_to_include = c("sondering_id", "lithostrat_id", "depth_bin")) {
+    # Predict
+    preds_class <- predict(fitted_model, new_data = test_data)
+    preds_prob <- predict(fitted_model, new_data = test_data, type = "prob")
+
+    # Combine predictions with ID and truth
+    pred_dt <- bind_cols(
+        test_data[, .SD, .SDcols = cols_to_include],
+        preds_class,
+        preds_prob
+    )
+
+    # Align factor levels with training data
+    if (!is.factor(train_data$lithostrat_id)) {
+        train_data[, lithostrat_id := factor(lithostrat_id)]
+    }
+    pred_dt[, lithostrat_id := factor(lithostrat_id,
+        levels = levels(train_data$lithostrat_id)
+    )]
+    pred_dt[, .pred_class := factor(.pred_class,
+        levels = levels(train_data$lithostrat_id)
+    )]
+
+    # Collect probability columns in the correct order of levels
+    lvl <- levels(train_data$lithostrat_id)
+    prob_cols <- paste0(".pred_", lvl)
+    prob_cols <- prob_cols[prob_cols %in% names(pred_dt)]
+
+    # Metrics
+    acc_tbl <- yardstick::accuracy(pred_dt,
+        truth = lithostrat_id,
+        estimate = .pred_class
+    )
+    # balc_tbl <- yardstick::bal_accuracy(pred_dt, truth = lithostrat_id, estimate = .pred_class)
+
+    # mn_log_loss (multiclass needs all .pred_* columns)
+    if (length(prob_cols) > 0L) {
+        mnll_tbl <- rlang::exec(
+            yardstick::mn_log_loss,
+            data  = pred_dt,
+            truth = rlang::expr(lithostrat_id),
+            !!!rlang::syms(prob_cols)
+        )
+    } else {
+        mnll_tbl <- NULL
+        warning("No .pred_* columns found; mn_log_loss skipped.")
+    }
+
+    # roc_auc (handle binary vs multiclass explicitly)
+    if (length(lvl) == 2L) {
+        pos <- lvl[2L] # treat second level as the 'event'
+        pos_col <- paste0(".pred_", pos)
+        if (pos_col %in% names(pred_dt)) {
+            roc_tbl <- yardstick::roc_auc(
+                pred_dt,
+                truth = lithostrat_id,
+                estimate = !!rlang::sym(pos_col),
+                event_level = "second"
+            )
+        } else {
+            roc_tbl <- NULL
+            warning("Binary AUC skipped: probability column for positive class not found.")
+        }
+    } else if (length(prob_cols) > 0L) {
+        roc_tbl <- rlang::exec(
+            yardstick::roc_auc,
+            data = pred_dt,
+            truth = rlang::expr(lithostrat_id),
+            !!!rlang::syms(prob_cols),
+            estimator = "macro_weighted"
+        )
+    } else {
+        roc_tbl <- NULL
+        warning("Multiclass AUC skipped: no .pred_* columns found.")
+    }
+
+    metrics <- dplyr::bind_rows(acc_tbl, mnll_tbl, roc_tbl)
+    data.table::setDT(metrics)
+
+    # Confusion matrix
+    cm <- yardstick::conf_mat(
+        pred_dt,
+        truth = lithostrat_id,
+        estimate = .pred_class
+    )
+
+    list(
+        predictions = pred_dt,
+        metrics = metrics,
+        confusion_matrix = cm
+    )
+}
+
+# Convert confusion matrix to data frame for kable
+conf_mat_to_df <- function(cm) {
+    as.data.frame.matrix(cm$table)
+}
+```
+
+
+
+```{r data_prep}
+library(tidyverse)
+library(data.table)
+library(arrow)
+library(here)
+library(xgboost)
+library(knitr)
+library(zoo)
+library(tidymodels)
+library(bonsai)
+library(future)
+library(furrr)
+# library(lightgbm)  # Fo
+
+data_folder <- here("data")
+results_folder <- here("results")
+
+cat("Data folder:", data_folder, "\n")
+cat("Results folder:", results_folder, "\n")
+
+list.files(results_folder)
+
+
+train_dt <- fread(here(
+    results_folder,
+    "train_binned_true_0.6_42_additive.csv"
+))
+test_dt <- fread(here(
+    results_folder,
+    "test_binned_true_0.6_42_additive.csv"
+))
+# factoor lithostrat_id
+
+levels_litho <- unique(c(
+    train_dt$lithostrat_id,
+    test_dt$lithostrat_id
+))
+train_dt[, lithostrat_id := factor(lithostrat_id, levels = levels_litho)]
+test_dt[, lithostrat_id := factor(lithostrat_id, levels = levels_litho)]
+
+```
+
+
+```{r model_setup}
+id_col <- "sondering_id"
+depth_col <- "depth_bin"
+label_col <- "lithostrat_id"
+# Formula
+nms_feat <- setdiff(names(dt), c(
+    id_col, "lithostrat_id",
+    depth_col, "diepte"
+))
+model_formula <- as.formula(paste(
+    "lithostrat_id ~",
+    paste(c(nms_feat, id_col),
+        collapse = " + "
+    )
+))
+
+rm_cols <- c(depth_col)
+# Shared recipe
+base_recipe <- recipe(lithostrat_id ~ .,
+    data = train_dt[, .SD, .SDcols = !rm_cols]
+) |>
+    update_role(sondering_id, new_role = "group_id") |>
+    step_rm(sondering_id) |>
+    step_impute_mean(all_predictors()) |>
+    step_zv(all_predictors()) |>
+    step_nzv(all_predictors())
+# Model specifications
+# ADD NEW MODELS HERE - that's the ONLY place you need to change!
+model_specs <- list(
+    xgb = boost_tree(
+        trees = tune(),
+        tree_depth = tune(),
+        learn_rate = tune(),
+        loss_reduction = tune(),
+        min_n = tune(),
+        mtry = tune(),
+        sample_size = tune()
+    ) |> set_mode("classification") |>
+        set_engine("xgboost"),
+    rf = rand_forest(
+        trees = tune(),
+        mtry = tune(),
+        min_n = tune()
+    ) |>
+        set_mode("classification") |>
+        set_engine("ranger",
+            importance = "permutation",
+            splitrule = "extratrees"
+        ),
+    lgbm = boost_tree(
+        trees = tune(),
+        tree_depth = tune(),
+        learn_rate = tune(),
+        loss_reduction = tune(),
+        min_n = tune(),
+        mtry = tune(),
+        sample_size = tune()
+    ) |> set_mode("classification") |>
+        set_engine("lightgbm")
+)
+
+# Workflows
+workflows <- lapply(model_specs, function(spec) {
+    workflow() |>
+        add_recipe(base_recipe) |>
+        add_model(spec)
+})
+
+# CV folds
+set.seed(SET_SEED)
+folds <- group_vfold_cv(train_dt,
+    group = sondering_id,
+    v = 10
+)
+```
+
+## Tune and train the models
+
+```{r train_models, results='asis'}
+# Generate parameter grids (automatically for all models)
+
+grids <- lapply(names(workflows), function(model_name) {
+    if (model_name == "rf") {
+        extract_parameter_set_dials(workflows[[model_name]]) |>
+            finalize(train_dt |> dplyr::select(-lithostrat_id, -depth_bin)) |>
+            grid_latin_hypercube(size = size_tune)
+    } else {
+        extract_parameter_set_dials(workflows[[model_name]]) |>
+            finalize(train_dt |> dplyr::select(-lithostrat_id, -depth_bin)) |>
+            grid_latin_hypercube(size = size_tune)
+    }
+})
+names(grids) <- names(workflows)
+
+# Train and evaluate ALL models in parallel
+# Train and evaluate ALL models sequentially
+results <- list()
+library(tictoc)
+tic()
+for (model_name in names(workflows)) {
+    cat("\nTraining", toupper(model_name), "\n")
+
+    # Tune hyperparameters
+    cat("Tuning hyperparameters...\n")
+
+    # paralize this step if needed
+    # library(future)
+    # plan(multisession, workers = parallel::detectCores() - 4)
+
+
+    tune_res <- tune_model(
+        workflows[[model_name]],
+        folds, grids[[model_name]]
+    )
+    # plan(sequential)  # back to sequential
+
+    #  Fit best model
+    cat("Fitting best model...\n")
+    best_model <- fit_best_model(
+        workflows[[model_name]],
+        tune_res, train_dt
+    )
+
+    # Evaluate on test set
+    cat("Evaluating on test set...\n")
+    eval_res <- evaluate_model(best_model,
+        test_dt, train_dt,
+        id_col = "sondering_id"
+    )
+
+    # Add model name to metrics
+    eval_res$metrics[, model := model_name]
+
+    # Store results
+    results[[model_name]] <- list(
+        tune_results = tune_res,
+        fitted_model = best_model,
+        predictions = eval_res$predictions,
+        metrics = eval_res$metrics,
+        confusion_matrix = eval_res$confusion_matrix
+    )
+
+    cat("Completed\n")
+}
+toc()
+```
+
+
+## What the models achieved
+
+### What we saw while tuning
+
+- For each model, we list the tuning metrics (mean and standard error) across resamples.
+- Use this to spot which hyperparameters tend to perform better.
+- Look for a good mix of high accuracy and stable (low std error) results.
+
+```{r tuning_metrics, results = "asis"}
+# Display tuning metrics for all models
+for (model_name in names(results)) {
+  cat("\n####", toupper(model_name), "Tuning Metrics\n")
+  print(kable(collect_metrics(results[[model_name]]$tune_results)))
+}
+```
+
+### Compare models at a glance
+
+- We summarize tuning results by model to see which family performs best overall.
+- Higher accuracy and balanced accuracy indicate better performance across classes.
+- This helps decide where to focus further tuning or feature work.
+
+```{r comparison}
+# Combine metrics from all models
+combined_metrics <- bind_rows(lapply(names(results), function(model_name) {
+  collect_metrics(results[[model_name]]$tune_results) |>
+    mutate(model = model_name)
+}))
+
+comparison_summary <- combined_metrics |>
+  group_by(model, .metric) |>
+  summarize(mean = mean(mean), std_err = mean(std_err), .groups = "drop") |>
+  arrange(.metric, desc(mean))
+
+kable(comparison_summary)
+```
+
+### performance on test set
+
+- Final metrics reported on the held-out test boreholes (never seen during training).
+- Confusion matrices show where predictions go wrong per class.
+- Use this to understand practical performance and class-specific issues.
+
+```{r test_performance, results='asis'}
+# Combined test metrics from all models
+test_metrics <- bind_rows(lapply(results, function(r) r$metrics))
+kable(test_metrics)
+
+# Display confusion matrices for all models
+for (model_name in names(results)) {
+  cat("\n####", toupper(model_name), "Confusion Matrix\n")
+  cm_df <- conf_mat_to_df(results[[model_name]]$confusion_matrix)
+  print(kable(cm_df))
+  cat("\n")
+}
+```
