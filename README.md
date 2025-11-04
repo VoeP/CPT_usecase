@@ -86,3 +86,17 @@ Arguments:
 - data_folder points to the input folder containing the parquet (expects
   vw_cpt_brussels_params_completeset_20250318_remapped.parquet);
 - results_folder sets the output folder for processed CSVs.
+
+#### Train/test split reproduction
+
+If you prefer to work on raw (unbinned) CPT rows, you can still
+reproduce the exact train/test split by loading results/split_res.pkl
+(pickled dict with keys train_ids and test_ids) and filtering your
+dataset by sondering_id accordingly. This guarantees consistency with
+the split used to generate the binned outputs.
+
+``` python
+import pickle
+with open("results" / "split_res.pkl", "rb") as f:
+    loaded = pickle.load(f)
+```

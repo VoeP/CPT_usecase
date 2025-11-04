@@ -16,6 +16,7 @@ size_tune <- 10 # number of hyperparameter combinations to try per model
 
 ### Functions
 
+- The team was interested on which features were better at predicting the target variable.
 ```{r}
 # Tune model hyperparameters
 tune_model <- function(workflow, folds, grid) {
@@ -48,7 +49,45 @@ fit_best_model <- function(
 }
 
 
-# Evaluate model and return predictions with metrics
+per_class_metrics <- function(pred_dt,
+                              truth_col = "lithostrat_id",
+                              estimate_col = ".pred_class") {
+
+    lvls <- levels(pred_dt[[truth_col]])
+    rows <- lapply(lvls, function(cls) {
+        data <- pred_dt |>
+            dplyr::mutate(
+                truth_bin = factor(ifelse(.data[[truth_col]] == cls, cls,
+                    "other"
+                ), levels = c("other", cls)),
+                pred_bin = factor(ifelse(.data[[estimate_col]] == cls, cls,
+                    "other"
+                ), levels = c("other", cls))
+            )
+        tibble::tibble(
+            lithostrat_id = cls,
+            support = sum(data$truth_bin == cls),
+            precision = yardstick::precision(data,
+                truth = truth_bin,
+                estimate = pred_bin, event_level = "second"
+            )$.estimate,
+            recall = yardstick::recall(data,
+                truth = truth_bin,
+                estimate = pred_bin, event_level = "second"
+            )$.estimate,
+            specificity = yardstick::spec(data,
+                truth = truth_bin,
+                estimate = pred_bin, event_level = "second"
+            )$.estimate,
+            accuracy = yardstick::accuracy(data,
+                truth = truth_bin, estimate = pred_bin
+            )$.estimate
+        )
+    })
+    dplyr::bind_rows(rows)
+}
+
+
 evaluate_model <- function(
     fitted_model,
     test_data,
@@ -140,10 +179,14 @@ evaluate_model <- function(
         estimate = .pred_class
     )
 
+    # Per-class metrics
+    per_class_df <- per_class_metrics(pred_dt)
+
     list(
         predictions = pred_dt,
         metrics = metrics,
-        confusion_matrix = cm
+        confusion_matrix = cm,
+        per_class_metrics = per_class_df
     )
 }
 
@@ -186,8 +229,10 @@ test_dt <- fread(here(
     results_folder,
     "test_binned_true_0.6_42_additive.csv"
 ))
-# factoor lithostrat_id
-
+# factor lithostrat_id
+# remove Onbekend
+train_dt <- train_dt[lithostrat_id != "Onbekend"]
+test_dt <- test_dt[lithostrat_id != "Onbekend"]
 levels_litho <- unique(c(
     train_dt$lithostrat_id,
     test_dt$lithostrat_id
@@ -327,9 +372,14 @@ for (model_name in names(workflows)) {
         test_dt, train_dt,
         id_col = "sondering_id"
     )
+    eval_train <- evaluate_model(best_model,
+        train_dt, train_dt,
+        id_col = "sondering_id"
+    )
 
     # Add model name to metrics
     eval_res$metrics[, model := model_name]
+    eval_train$metrics[, model := model_name]
 
     # Store results
     results[[model_name]] <- list(
@@ -337,7 +387,9 @@ for (model_name in names(workflows)) {
         fitted_model = best_model,
         predictions = eval_res$predictions,
         metrics = eval_res$metrics,
-        confusion_matrix = eval_res$confusion_matrix
+        confusion_matrix = eval_res$confusion_matrix,
+        per_class_metrics = eval_res$per_class_metrics,
+        train_metrics = eval_train$metrics
     )
 
     cat("Completed\n")
@@ -346,9 +398,7 @@ toc()
 ```
 
 
-## What the models achieved
-
-### What we saw while tuning
+## Results Summary
 
 - For each model, we list the tuning metrics (mean and standard error) across resamples.
 - Use this to spot which hyperparameters tend to perform better.
@@ -362,7 +412,7 @@ for (model_name in names(results)) {
 }
 ```
 
-### Compare models at a glance
+### Compare tuning results across models
 
 - We summarize tuning results by model to see which family performs best overall.
 - Higher accuracy and balanced accuracy indicate better performance across classes.
@@ -383,6 +433,19 @@ comparison_summary <- combined_metrics |>
 kable(comparison_summary)
 ```
 
+### Perfomance on training set
+
+
+- We report training set metrics to check for overfitting.
+
+```{r train_performance, results='asis'}
+# train_metrics from all models
+train_metrics <- bind_rows(lapply(results, function(r) r$train_metrics))
+kable(train_metrics)
+```
+
+
+
 ### performance on test set
 
 - Final metrics reported on the held-out test boreholes (never seen during training).
@@ -393,8 +456,12 @@ kable(comparison_summary)
 # Combined test metrics from all models
 test_metrics <- bind_rows(lapply(results, function(r) r$metrics))
 kable(test_metrics)
+```
 
-# Display confusion matrices for all models
+
+### Confusion Matrices
+
+```{r confusion_matrices, results='asis'}
 for (model_name in names(results)) {
   cat("\n####", toupper(model_name), "Confusion Matrix\n")
   cm_df <- conf_mat_to_df(results[[model_name]]$confusion_matrix)
@@ -402,3 +469,18 @@ for (model_name in names(results)) {
   cat("\n")
 }
 ```
+
+
+### Per-class metrics
+
+- We report precision, recall, specificity, accuracy per lithostrat class.
+
+```{r per_class_metrics, results='asis'}
+# Combined per-class metrics from all models
+for (model_name in names(results)) {
+  cat("\n####", toupper(model_name), "Per-Class Metrics\n")
+  per_class_df <- results[[model_name]]$per_class
+  print(kable(per_class_df))
+}
+```
+
