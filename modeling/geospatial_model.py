@@ -5,8 +5,26 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import contextily as cx
 
-df = pd.read_parquet("C:/Users/joelle/Documents/Master/ProjectDS/vw_cpt_brussels_params_completeset_20250318_remapped.parquet", engine = "pyarrow")
-df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to data portal; not accessible for our team (non-Belgians)
+from data_module import (
+    DataSet,
+    extract_features,
+    tile_split,
+    segments_oi, 
+    loo_cv,
+    print_loocv,
+)
+
+PARQUET_PATH = "C:/Users/joelle/Documents/Master/ProjectDS/vw_cpt_brussels_params_completeset_20250318_remapped.parquet"
+LABEL = "lithostrat_id"
+
+ds = DataSet(
+    path_to_parquet = PARQUET_PATH,
+    segments_of_interest = segments_oi
+)
+
+# this contains the link which can't be accessed by our team
+if "pkey_sondering" in ds.raw_df.columns:
+    ds.raw_df = ds.raw_df.drop(columns=["pkey_sondering"])
 
 #print(df.shape)
 #print(df.info())
@@ -15,7 +33,7 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 
 # %%
 
-# # duplicates analysis
+# # duplicates analysis; not necessary anymore after Q&A with VITO
 
 # ID_COL = "index"
 # KEY = ['sondeernummer', 'diepte']
@@ -147,82 +165,84 @@ df = df.drop(columns = ['pkey_sondering']) # not needed for analysis, links to d
 # %%
 
 # define two data sets: working and target
-LABEL = "lithostrat_id"
-df[LABEL] = df[LABEL].astype("string").str.strip()
 
-# consider onbekend as missing for now # TODO: check later if missing is still best option
-invalid_labels = {"", "none", "nan", "null", "onbekend", "na", "n/a"}
-valid_mask = ~df[LABEL].str.lower().isin(invalid_labels) & df[LABEL].notna()
-df_work = df.loc[valid_mask].copy()     # working dataset (with lithostrat_id)
-df_target = df.loc[~valid_mask].copy()  # target dataset
-df[LABEL] = df[LABEL].astype("category")
-df_work[LABEL] = df_work[LABEL].astype("category")
-df_target[LABEL] = df_target[LABEL].astype("category")
+# known lithostrat_id
+df_work = ds.impute_params(
+    overwrite=False,
+    scope="known",
+    use_imputation=True,
+    drop_na_if_not_imputed=True,
+    na_cols=["qc", "fs", "rf", "qtn", "fr", "icn", "sbt", "ksbt"],
+)
 
-# print("Data split summary")
-# print(f"Total rows: {len(df)}")
-# print(f"Rows WITH lithostrat_id (df_work): {len(df_work)}")
-# print(f"Rows WITHOUT lithostrat_id (df_target): {len(df_target)}")
+# unknown lithostrat_id used for prediction
+df_target = ds.unlabeled_data.copy()
 
-freq = df_work["lithostrat_id"].value_counts(dropna = False)
-# print("Frequency table per label (lithostrat_id)")
-# print(freq)
+# make label categorical
+for d in (df_work, df_target):
+    if LABEL in d.columns:
+        d[LABEL] = d[LABEL].astype("category")
+
+freq = df_work[LABEL].value_counts(dropna=False)
+
+print("Frequency table per label (lithostrat_id)")
+print(freq)
 
 # %%
 
-# print(df_work.isna().sum())
-# print(df_target.isna().sum())
+# # print(df_work.isna().sum())
+# # print(df_target.isna().sum())
 
-# imputing missing values, however, dropping NA could be a good alternative due to small proportion of missingness
-# only for 3 vars, maybe extend later when developing data import automation (TODO)
+# # imputing missing values, however, dropping NA could be a good alternative due to small proportion of missingness
+# # only for 3 vars, maybe extend later when developing data import automation (TODO)
 
-# to impute parameters, formulas from ChatGPT were used -> needs adjustment after lit review TODO
+# # to impute parameters, formulas from ChatGPT were used -> needs adjustment after lit review TODO
 
-def impute_params (df, overwrite = False):
-    df = df.copy()
+# def impute_params (df, overwrite = False):
+#     df = df.copy()
 
-    # icn
-    mask_icn = df['icn'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-    valid_icn = mask_icn & df['qtn'].gt(0) & df['fr'].gt(0)
+#     # icn
+#     mask_icn = df['icn'].isna() if not overwrite else np.ones(len(df), dtype = bool)
+#     valid_icn = mask_icn & df['qtn'].gt(0) & df['fr'].gt(0)
     
-    icn_new = np.sqrt((3.47 - np.log10(df.loc[valid_icn, 'qtn']))**2 +
-                      (np.log10(df.loc[valid_icn, 'fr']) + 1.22)**2)
+#     icn_new = np.sqrt((3.47 - np.log10(df.loc[valid_icn, 'qtn']))**2 +
+#                       (np.log10(df.loc[valid_icn, 'fr']) + 1.22)**2)
     
-    df.loc[valid_icn, 'icn'] = icn_new
+#     df.loc[valid_icn, 'icn'] = icn_new
     
-    # sbt
-    def sbt_from_ic(ic):
-        if pd.isna(ic):
-            return np.nan
-        if ic < 1.31: return 1
-        elif ic < 2.05: return 2
-        elif ic < 2.60: return 3
-        elif ic < 2.95: return 4
-        elif ic < 3.60: return 5
-        else: return 6
+#     # sbt
+#     def sbt_from_ic(ic):
+#         if pd.isna(ic):
+#             return np.nan
+#         if ic < 1.31: return 1
+#         elif ic < 2.05: return 2
+#         elif ic < 2.60: return 3
+#         elif ic < 2.95: return 4
+#         elif ic < 3.60: return 5
+#         else: return 6
     
-    mask_sbt = df['sbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-    df.loc[mask_sbt, 'sbt'] = df.loc[mask_sbt, 'icn'].apply(sbt_from_ic)
+#     mask_sbt = df['sbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
+#     df.loc[mask_sbt, 'sbt'] = df.loc[mask_sbt, 'icn'].apply(sbt_from_ic)
     
-    # ksbt
-    df['ksbt'] = pd.to_numeric(df['ksbt'], errors = 'coerce')
-    def ksbt_from_ic(ic):
-        if pd.isna(ic):
-            return np.nan
-        if 1.0 < ic <=  3.27:
-            return 10 ** (0.952 - 3.04 * ic)
-        elif 3.27 > ic: # < 4.0:
-            return 10 ** (-4.52 - 1.37 * ic)
-        else:
-            return np.nan
+#     # ksbt
+#     df['ksbt'] = pd.to_numeric(df['ksbt'], errors = 'coerce')
+#     def ksbt_from_ic(ic):
+#         if pd.isna(ic):
+#             return np.nan
+#         if 1.0 < ic <=  3.27:
+#             return 10 ** (0.952 - 3.04 * ic)
+#         elif 3.27 > ic: # < 4.0:
+#             return 10 ** (-4.52 - 1.37 * ic)
+#         else:
+#             return np.nan
     
-    mask_ksbt = df['ksbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-    df.loc[mask_ksbt, 'ksbt'] = df.loc[mask_ksbt, 'icn'].apply(ksbt_from_ic)
+#     mask_ksbt = df['ksbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
+#     df.loc[mask_ksbt, 'ksbt'] = df.loc[mask_ksbt, 'icn'].apply(ksbt_from_ic)
     
-    return df
+#     return df
 
-df_work = impute_params(df_work)
-# print(df_work.isna().sum())
+# df_work = impute_params(df_work)
+# # print(df_work.isna().sum())
 
 # %%
 
@@ -302,135 +322,6 @@ df_work = impute_params(df_work)
 
 # building a feature extractor: from each CPT, the features need to be stored
 vars_num = ["qc","fs","rf","qtn","fr","icn","ksbt"]
-def extract_features(
-    df: pd.DataFrame,
-    vars_num,
-    depth_col = "diepte",
-    depth_mtaw_col = "diepte_mtaw",
-    label_col = "lithostrat_id",
-    min_n = 5,
-):
-    """
-    feature extractor: 
-    (1) groups by (sondeernummer, label_col)
-    (2) for each group, computes:
-    - IDs and position: sondeernummer, x, y, start_depth, end_depth, start_depth_mtaw, end_depth_mtaw, thickness, mean_depth_mtaw, n_samples_used
-    - Stats for each var in vars_num: mean, sd, squared values mean, intra-step deltas, intra-layer deltas, intra-layer normalized deltas (mean, sd for all deltas)
-    (3) Returns one row per (CPT, layer).
-    """
-    
-    rows = []
-    skipped = 0 # for layers with too few samples
-    skipped_examples = []
-    for (cpt, label), g in df.groupby(["sondeernummer", label_col], observed = False):
-        g = g.sort_values(depth_col)
-        if len(g) < min_n:
-            skipped +=  1
-            skipped_examples.append((cpt, label, len(g)))
-            continue
-        
-        # probably should have done this when also checking index dup, move? (TODO)
-        if g["x"].nunique() !=  1 or g["y"].nunique() !=  1:
-            print(f"Warning: multiple coordinate values in CPT = {cpt}, layer = {label}: ")
-        
-        # id + positional
-        start_depth = float(g[depth_col].min())
-        end_depth   = float(g[depth_col].max())
-        start_depth_mtaw = float(g[depth_mtaw_col].min())
-        end_depth_mtaw   = float(g[depth_mtaw_col].max())
-        row = {
-            "sondeernummer": cpt,
-            "layer_label": label,
-            "x": float(g["x"].iloc[0]),
-            "y": float(g["y"].iloc[0]),
-            "start_depth": start_depth,
-            "end_depth": end_depth,
-            "start_depth_mtaw": start_depth_mtaw,
-            "end_depth_mtaw": end_depth_mtaw,
-            "thickness": end_depth - start_depth,
-            "mean_depth_mtaw": float(g[depth_mtaw_col].mean()),
-            "n_samples_used": int(len(g)),
-        }
-        
-        # Numeric summaries
-        for var in vars_num:
-            if var not in g.columns:
-            # included na value handling; not important for initial data set but maybe later when new CPTs are uploaded
-                row[f"{var}_mean"] = np.nan
-                row[f"{var}_sd"]  = np.nan
-                row[f"{var}_sq_mean"] = np.nan
-                row[f"{var}_dstep_mean"] = np.nan       # average change per step (ca 2cm)
-                row[f"{var}_dstep_sd"]  = np.nan        # variation per step
-                row[f"{var}_dstep_abs_mean"] = np.nan   # absolute value
-                row[f"{var}_d_dz_mean"] = np.nan        # average change per meter depth
-                row[f"{var}_d_dz_sd"]  = np.nan         # variation per meter depth
-                continue
-            s = g[var].dropna()
-            row[f"{var}_mean"] = float(s.mean()) if len(s) else np.nan              # mean
-            row[f"{var}_sd"]  = float(s.std(ddof = 1)) if len(s) > 1 else np.nan      # sd     
-            s2 = s ** 2                                                             # squared value
-            row[f"{var}_sq_mean"] = float(s2.mean()) if len(s2) else np.nan         # mean of squared values
-
-            # deltas
-            sub = g[[depth_col, var]].dropna().sort_values(depth_col)
-
-            if len(sub) > 1:
-                v = sub[var].to_numpy(dtype = float) # for variable values
-                z = sub[depth_col].to_numpy(dtype = float) # for depth values
-
-                # net change end to start
-                delta_layer = float(v[-1] - v[0])
-                thickness = float(z[-1] - z[0])
-                row[f"{var}_end_minus_start"] = delta_layer
-
-                # normalized change: net variable change / thickness -> change in value per meter 
-                row[f"{var}_end_minus_start_per_m"] = (delta_layer / thickness) if thickness > 0 else np.nan
-
-                # local changes (derivatives)
-                dv = np.diff(v)
-                dz = np.diff(z)
-
-                with np.errstate(divide = 'ignore', invalid = 'ignore'): # if z = 0 or NA
-                    deriv = dv / dz
-
-                deriv = deriv[np.isfinite(deriv)] # drop NA or undefined
-                if deriv.size:
-                    row[f"{var}_d_dz_mean"] = float(deriv.mean()) # unweighted mean of slopes (per group)
-                    row[f"{var}_d_dz_sd"]   = float(deriv.std(ddof = 1)) if deriv.size > 1 else 0.0
-                    # length-weighted mean slope
-                    # weighted_mean = float((deriv * dz[np.isfinite(deriv)]).sum() / dz[np.isfinite(deriv)].sum())
-                else:
-                    row[f"{var}_d_dz_mean"] = np.nan
-                    row[f"{var}_d_dz_sd"]   = np.nan
-            else:
-                # not enough measurements to compute slopes but should we use end/start if exactly one? (TODO)
-                row[f"{var}_end_minus_start"] = np.nan
-                row[f"{var}_end_minus_start_per_m"] = np.nan
-                row[f"{var}_d_dz_mean"] = np.nan
-                row[f"{var}_d_dz_sd"]   = np.nan
-            
-            # mean depth of the 3 largest values
-            if len(s) >=  3:
-                top3_idx = s.nlargest(3).index
-                row[f"{var}_top3_mean_depth_rel"]  = float(g.loc[top3_idx, depth_col].mean())
-                row[f"{var}_top3_mean_depth_mtaw"] = float(g.loc[top3_idx, depth_mtaw_col].mean())
-            else:
-                row[f"{var}_top3_mean_depth_rel"]  = np.nan
-                row[f"{var}_top3_mean_depth_mtaw"] = np.nan
-        
-        rows.append(row)
-    
-    out = pd.DataFrame(rows)
-
-    if skipped > 0:
-        print(f"feature extraction function skipped {skipped} layer group(s) due to insufficient samples (< {min_n}).")
-        # for cpt, label, n in skipped_examples:
-        #    print(f"Example skipped group: sondeernummer = {cpt}, layer_label = {label}, n_samples = {n}")
-    id_cols = ["sondeernummer","layer_label","x","y","start_depth","end_depth", "start_depth_mtaw", "end_depth_mtaw", "thickness","mean_depth_mtaw","n_samples_used"]
-    feature_cols = [c for c in out.columns if c not in id_cols]
-    return out[id_cols + feature_cols]
-
-
 
 feat_all = extract_features(
     df_work,
@@ -438,6 +329,7 @@ feat_all = extract_features(
     depth_col = "diepte",
     depth_mtaw_col = "diepte_mtaw",
     label_col = "lithostrat_id",
+    cpt_col = "sondeernummer",
     min_n = 5,                
 )
 print(feat_all.head())
@@ -447,42 +339,26 @@ print(feat_all.head())
 
 # building the geospatial model
 # first, using a grid-based method to create tiles
-feat = feat_all.copy()
-
-# 4 * 4 grid
-Gx = Gy = 4
-feat["xbin"] = pd.qcut(feat["x"], q = Gx, labels = False, duplicates = "drop").astype(int)
-feat["ybin"] = pd.qcut(feat["y"], q = Gy, labels = False, duplicates = "drop").astype(int)
-feat["tile"] = feat["xbin"] * Gy + feat["ybin"]
-
-# tile counts
-tile_sizes = feat.groupby("tile").size().sort_values(ascending = False)
-print("Tiles and layer counts per tile:\n", tile_sizes.to_string())
-n_tiles = feat["tile"].nunique()
-print(f"Total unique tiles: {n_tiles}")
-
-# randomly choose 20 % of tiles for train - maybe exclude adjacent tiles from test later or increase train
-rng = np.random.default_rng(42)
-train_tile_count = max(1, int(np.ceil(n_tiles * 0.30))) # 30 %
-all_tiles = feat["tile"].unique()
-train_tiles = set(rng.choice(all_tiles, size = train_tile_count, replace = False))
-test_tiles  = set(all_tiles) - train_tiles
-
-print(f"Chosen TRAIN tiles ({len(train_tiles)}): {sorted(train_tiles)}")
-print(f"Chosen TEST  tiles ({len(test_tiles)}):  {sorted(test_tiles)}")
-
-# match tiles by sondeernummer to create train and test df
-train_cpts = set(feat.loc[feat["tile"].isin(train_tiles), "sondeernummer"].unique())
-test_cpts  = set(feat.loc[feat["tile"].isin(test_tiles),  "sondeernummer"].unique())
-
-feat_train = feat[feat["sondeernummer"].isin(train_cpts)].copy()
-feat_test  = feat[feat["sondeernummer"].isin(test_cpts)].copy()
-
-# tile sizes 
-print("Tile sizes")
-print(f"Tiles:   train = {len(train_tiles):>3} | test = {len(test_tiles):>3} | total = {n_tiles}")
-print(f"CPTs:    train = {feat_train['sondeernummer'].nunique():>3} | test = {feat_test['sondeernummer'].nunique():>3} | total = {feat['sondeernummer'].nunique()}")
-print(f"Layers:  train = {len(feat_train):>5} | test = {len(feat_test):>5} | total = {len(feat)}")
+feat_with_tiles, feat_train, feat_test, X_train, X_test, y_train, y_test = tile_split(
+    feat_all,
+    Gx=4,
+    Gy=4,
+    train_frac=0.30,
+    random_state=22,
+    x_col="x",
+    y_col="y",
+    cpt_col="sondeernummer",
+    label_col="layer_label",
+    extra_id_cols=[
+        "start_depth",
+        "end_depth",
+        "start_depth_mtaw",
+        "end_depth_mtaw",
+        "thickness",
+        "mean_depth_mtaw",
+        "n_samples_used",
+    ],
+)
 
 # label counts, due to small train, some labels may not be part of train and can't be modelled
 # print("Train label counts:")
@@ -492,20 +368,6 @@ print(f"Layers:  train = {len(feat_train):>5} | test = {len(feat_test):>5} | tot
 # print(feat_test["layer_label"].value_counts().to_string())
 
 # %%
-
-# features for train and test
-id_cols = ["sondeernummer","layer_label","x","y","start_depth","end_depth", "start_depth_mtaw", "end_depth_mtaw", "thickness","mean_depth_mtaw","n_samples_used"]
-X_train = feat_train.drop(columns = id_cols) # only predictors
-y_train = feat_train["layer_label"].copy() # label to predict
-X_test  = feat_test.drop(columns = id_cols)
-y_test  = feat_test["layer_label"].copy()
-
-# print("X shapes:", X_train.shape, X_test.shape)
-
-seen_labels = set(feat_train["layer_label"].unique())
-mask_seen = feat_test["layer_label"].isin(seen_labels)
-print(f"Test rows with labels seen in train: {mask_seen.sum()} / {len(feat_test)} "
-      f"({mask_seen.mean():.1%})")
 
 # using k nearest ROWS (but not in same tile) and mtaw as elevation feature tau
 def predict_label(row, feat_train, k = 5, tau = None):
@@ -614,6 +476,8 @@ print(eval_nearest_cpt_pred(feat_train, feat_test).to_string(index = False))
 # evaluation for row-based spatial model with k = 5, tau = 2.0
 feat_test = feat_test.copy()
 feat_test["pred_knn"] = feat_test.apply(lambda r: predict_label(r, feat_train, k = 5, tau = 2.0), axis = 1)
+
+mask_seen = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
 
 # accuracy only labels present in train
 if mask_seen.any():
@@ -888,6 +752,88 @@ per_class_acc = (
 support = feat_test.loc[mask_seen, "layer_label"].value_counts().rename("n")
 print("Per-class (top 10 by support):")
 print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending = False).head(10).to_string())
+
+#%%
+
+loocv_k = 3
+loocv_tau = 20.0
+loocv_alpha = 1.0
+loocv_beta = 1.0
+loocv_min_thickness = 0.5  # same as above
+
+loocv_results = []
+
+for t, train_df, test_df, X_tr, X_te, y_tr, y_te in loo_cv(
+    feat_with_tiles,
+    label_col="layer_label",
+    cpt_col="sondeernummer",
+):
+    if len(train_df) == 0 or len(test_df) == 0:
+        continue
+
+    # work on copies to avoid touching the original
+    train = train_df.copy()
+    test = test_df.copy()
+
+    # add rf_mean & log features (same definitions as above)
+    for df_ in (train, test):
+        df_["rf_mean"] = 100.0 * (df_["fs_mean"] / (df_["qc_mean"] + eps))
+        df_["log_qc_mean"] = np.log(np.maximum(df_["qc_mean"], eps))
+        df_["log_rf_mean"] = np.log(np.maximum(df_["rf_mean"], eps))
+
+    # standardisation: mu/sd from TRAIN fold (optionally only “thick” layers)
+    train_f = train[train["thickness"] >= loocv_min_thickness].copy()
+    mu_fold = train_f[feat_cols].mean(numeric_only=True)
+    sd_fold = train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
+
+    z_scores_train_fold = ((train[feat_cols].fillna(mu_fold)) - mu_fold) / sd_fold
+
+    # spatial scaling from TRAIN fold
+    x_sd_fold = float(train["x"].std(ddof=1)) or 1.0
+    y_sd_fold = float(train["y"].std(ddof=1)) or 1.0
+
+    # predict on TEST fold using your existing hybrid predictor
+    test = test.copy()
+    test["pred_hybrid_loocv"] = test.apply(
+        lambda r: predict_label_hybrid(
+            r,
+            feat_train=train,
+            z_scores_train=z_scores_train_fold,
+            feat_cols=feat_cols, mu=mu_fold, sd=sd_fold,
+            k=loocv_k, tau=loocv_tau,
+            alpha=loocv_alpha, beta=loocv_beta,
+            x_sd=x_sd_fold, y_sd=y_sd_fold,
+            certainty_weights=certainty_weight,
+        ),
+        axis=1,
+    )
+
+    # accuracy only on labels that exist in this train fold
+    seen_labels_fold = set(train["layer_label"])
+    mask_seen_fold = test["layer_label"].isin(seen_labels_fold)
+    if mask_seen_fold.any():
+        acc_seen = (
+            test.loc[mask_seen_fold, "pred_hybrid_loocv"]
+            == test.loc[mask_seen_fold, "layer_label"]
+        ).mean()
+    else:
+        acc_seen = np.nan
+
+    loocv_results.append(
+        {
+            "tile": t,
+            "n_train": len(train),
+            "n_test": len(test),
+            "acc_seen_labels": acc_seen,
+        }
+    )
+
+loocv_results_df = pd.DataFrame(loocv_results)
+print_loocv(
+    loocv_results_df,
+    acc_col="acc_seen_labels",
+    model_name="Hybrid kNN (seen labels)",
+)
 
 # %%
 # used to assess, why in the inital model, change in alpha and beta did not change the acc
