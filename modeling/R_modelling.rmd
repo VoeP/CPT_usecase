@@ -227,6 +227,7 @@ test_dt <- fread(here(
     results_folder,
     "test_binned_true_0.6_42_multiplicative.csv"
 ))
+train_dt[, unique(lithostrat_id)]
 # factor lithostrat_id
 # remove Onbekend
 segments_oi <- c(
@@ -490,7 +491,7 @@ for (model_name in names(results)) {
 ### Per-class metrics
 
 - We report precision, recall, specificity, accuracy per lithostrat class.
-
+- There is a correlation between class support (number of samples) and these metrics.
 ```{r per_class_metrics, results='asis'}
 # Combined per-class metrics from all models
 for (model_name in names(results)) {
