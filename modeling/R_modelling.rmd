@@ -17,182 +17,180 @@ size_tune <- 10 # number of hyperparameter combinations to try per model
 ### Functions
 
 - The team was interested on which features were better at predicting the target variable.
-```{r}
+- We should also show where our model predicts the whole series well, even if it misses the starting points with a few centimeters
+- We should also show how far off the predicted starting points are from the true starting points (in cm)
+- trying to see where our model gets the whole series can this be an updated research question
+
+```{r functions}
 # Tune model hyperparameters
 tune_model <- function(workflow, folds, grid) {
-    set.seed(SET_SEED)
-    plan(multisession, workers = parallel::detectCores() - 4)
-    tune_results <- tune_grid(
-        workflow,
-        resamples = folds,
-        grid = grid,
-        metrics = yardstick::metric_set(accuracy, mn_log_loss),
-        control = control_grid(save_pred = TRUE)
-    )
-    plan(sequential) # back to sequential
-    tune_results
+  set.seed(SET_SEED)
+  plan(multisession, workers = parallel::detectCores() - 4)
+  tune_results <- tune_grid(
+    workflow,
+    resamples = folds,
+    grid = grid,
+    metrics = yardstick::metric_set(accuracy, mn_log_loss),
+    control = control_grid(save_pred = TRUE)
+  )
+  plan(sequential) # back to sequential
+  tune_results
 }
 
 # Fit best model from tuning results
-fit_best_model <- function(
-    workflow,
-    tune_results,
-    train_data,
-    metric = "mn_log_loss") {
-    finalize_workflow(
-        workflow,
-        select_best(tune_results,
-            metric = metric
-        )
-    ) |>
-        fit(data = train_data)
+fit_best_model <- function(workflow,
+                           tune_results,
+                           train_data,
+                           metric = "mn_log_loss") {
+  finalize_workflow(workflow, select_best(tune_results,
+                                          metric = metric)) |>
+    fit(data = train_data)
 }
 
 
 per_class_metrics <- function(pred_dt,
                               truth_col = "lithostrat_id",
                               estimate_col = ".pred_class") {
-
-    lvls <- levels(pred_dt[[truth_col]])
-    rows <- lapply(lvls, function(cls) {
-        data <- pred_dt |>
-            dplyr::mutate(
-                truth_bin = factor(ifelse(.data[[truth_col]] == cls, cls,
-                    "other"
-                ), levels = c("other", cls)),
-                pred_bin = factor(ifelse(.data[[estimate_col]] == cls, cls,
-                    "other"
-                ), levels = c("other", cls))
-            )
-        tibble::tibble(
-            lithostrat_id = cls,
-            support = sum(data$truth_bin == cls),
-            precision = yardstick::precision(data,
-                truth = truth_bin,
-                estimate = pred_bin, event_level = "second"
-            )$.estimate,
-            recall = yardstick::recall(data,
-                truth = truth_bin,
-                estimate = pred_bin, event_level = "second"
-            )$.estimate,
-            specificity = yardstick::spec(data,
-                truth = truth_bin,
-                estimate = pred_bin, event_level = "second"
-            )$.estimate,
-            accuracy = yardstick::accuracy(data,
-                truth = truth_bin, estimate = pred_bin
-            )$.estimate
-        )
-    })
-    dplyr::bind_rows(rows)
+  lvls <- levels(pred_dt[[truth_col]])
+  rows <- lapply(lvls, function(cls) {
+    data <- pred_dt |>
+      dplyr::mutate(
+        truth_bin = factor(ifelse(.data[[truth_col]] == cls, cls, "other"),
+                           levels = c("other", cls)),
+        pred_bin = factor(ifelse(.data[[estimate_col]] == cls, cls, "other"),
+                          levels = c("other", cls))
+      )
+    tibble::tibble(
+      lithostrat_id = cls,
+      support = sum(data$truth_bin == cls),
+      precision = yardstick::precision(
+        data,
+        truth = truth_bin,
+        estimate = pred_bin,
+        event_level = "second"
+      )$.estimate,
+      recall = yardstick::recall(
+        data,
+        truth = truth_bin,
+        estimate = pred_bin,
+        event_level = "second"
+      )$.estimate,
+      specificity = yardstick::spec(
+        data,
+        truth = truth_bin,
+        estimate = pred_bin,
+        event_level = "second"
+      )$.estimate,
+      accuracy = yardstick::accuracy(data, truth = truth_bin,
+                                     estimate = pred_bin)$.estimate
+    )
+  })
+  dplyr::bind_rows(rows)
 }
 
 
-evaluate_model <- function(
-    fitted_model,
-    test_data,
-    train_data,
-    id_col = "sondering_id",
-    cols_to_include = c("sondering_id", "lithostrat_id", "depth_bin")) {
-    # Predict
-    preds_class <- predict(fitted_model, new_data = test_data)
-    preds_prob <- predict(fitted_model, new_data = test_data, type = "prob")
-
-    # Combine predictions with ID and truth
-    pred_dt <- bind_cols(
-        test_data[, .SD, .SDcols = cols_to_include],
-        preds_class,
-        preds_prob
+evaluate_model <- function(fitted_model,
+                           test_data,
+                           train_data,
+                           id_col = "sondering_id",
+                           cols_to_include = c("sondering_id", 
+                                               "lithostrat_id", 
+                                               "depth_bin")) {
+  # Predict
+  preds_class <- predict(fitted_model,
+                         new_data = test_data)
+  preds_prob <- predict(fitted_model,
+                        new_data = test_data,
+                        type = "prob")
+  
+  # Combine predictions with ID and truth
+  pred_dt <- bind_cols(test_data[, .SD, 
+                                 .SDcols = cols_to_include],
+                       preds_class, preds_prob)
+  
+  # Align factor levels with training data
+  if (!is.factor(train_data$lithostrat_id)) {
+    train_data[, lithostrat_id := factor(lithostrat_id)]
+  }
+  pred_dt[, lithostrat_id := factor(lithostrat_id, 
+                                    levels = levels(train_data$lithostrat_id))]
+  pred_dt[, .pred_class := factor(.pred_class, 
+                                  levels = levels(train_data$lithostrat_id))]
+  
+  # Collect probability columns in the correct order of levels
+  lvl <- levels(train_data$lithostrat_id)
+  prob_cols <- paste0(".pred_", lvl)
+  prob_cols <- prob_cols[prob_cols %in% names(pred_dt)]
+  
+  # Metrics
+  acc_tbl <- yardstick::accuracy(pred_dt,
+                                 truth = lithostrat_id, estimate = .pred_class)
+  # balc_tbl <- yardstick::bal_accuracy(pred_dt, truth = lithostrat_id, estimate = .pred_class)
+  
+  # mn_log_loss (multiclass needs all .pred_* columns)
+  if (length(prob_cols) > 0L) {
+    mnll_tbl <- rlang::exec(
+      yardstick::mn_log_loss,
+      data  = pred_dt,
+      truth = rlang::expr(lithostrat_id),
+      !!!rlang::syms(prob_cols)
     )
-
-    # Align factor levels with training data
-    if (!is.factor(train_data$lithostrat_id)) {
-        train_data[, lithostrat_id := factor(lithostrat_id)]
-    }
-    pred_dt[, lithostrat_id := factor(lithostrat_id,
-        levels = levels(train_data$lithostrat_id)
-    )]
-    pred_dt[, .pred_class := factor(.pred_class,
-        levels = levels(train_data$lithostrat_id)
-    )]
-
-    # Collect probability columns in the correct order of levels
-    lvl <- levels(train_data$lithostrat_id)
-    prob_cols <- paste0(".pred_", lvl)
-    prob_cols <- prob_cols[prob_cols %in% names(pred_dt)]
-
-    # Metrics
-    acc_tbl <- yardstick::accuracy(pred_dt,
-        truth = lithostrat_id,
-        estimate = .pred_class
-    )
-    # balc_tbl <- yardstick::bal_accuracy(pred_dt, truth = lithostrat_id, estimate = .pred_class)
-
-    # mn_log_loss (multiclass needs all .pred_* columns)
-    if (length(prob_cols) > 0L) {
-        mnll_tbl <- rlang::exec(
-            yardstick::mn_log_loss,
-            data  = pred_dt,
-            truth = rlang::expr(lithostrat_id),
-            !!!rlang::syms(prob_cols)
-        )
-    } else {
-        mnll_tbl <- NULL
-        warning("No .pred_* columns found; mn_log_loss skipped.")
-    }
-
-    # roc_auc (handle binary vs multiclass explicitly)
-    if (length(lvl) == 2L) {
-        pos <- lvl[2L] # treat second level as the 'event'
-        pos_col <- paste0(".pred_", pos)
-        if (pos_col %in% names(pred_dt)) {
-            roc_tbl <- yardstick::roc_auc(
-                pred_dt,
-                truth = lithostrat_id,
-                estimate = !!rlang::sym(pos_col),
-                event_level = "second"
-            )
-        } else {
-            roc_tbl <- NULL
-            warning("Binary AUC skipped: probability column for positive class not found.")
-        }
-    } else if (length(prob_cols) > 0L) {
-        roc_tbl <- rlang::exec(
-            yardstick::roc_auc,
-            data = pred_dt,
-            truth = rlang::expr(lithostrat_id),
-            !!!rlang::syms(prob_cols),
-            estimator = "macro_weighted"
-        )
-    } else {
-        roc_tbl <- NULL
-        warning("Multiclass AUC skipped: no .pred_* columns found.")
-    }
-
-    metrics <- dplyr::bind_rows(acc_tbl, mnll_tbl, roc_tbl)
-    data.table::setDT(metrics)
-
-    # Confusion matrix
-    cm <- yardstick::conf_mat(
+  } else {
+    mnll_tbl <- NULL
+    warning("No .pred_* columns found; mn_log_loss skipped.")
+  }
+  
+  # roc_auc (handle binary vs multiclass explicitly)
+  if (length(lvl) == 2L) {
+    pos <- lvl[2L] # treat second level as the 'event'
+    pos_col <- paste0(".pred_", pos)
+    if (pos_col %in% names(pred_dt)) {
+      roc_tbl <- yardstick::roc_auc(
         pred_dt,
         truth = lithostrat_id,
-        estimate = .pred_class
+        estimate = !!rlang::sym(pos_col),
+        event_level = "second"
+      )
+    } else {
+      roc_tbl <- NULL
+      warning("Binary AUC skipped: probability column
+              for positive class not found.")
+    }
+  } else if (length(prob_cols) > 0L) {
+    roc_tbl <- rlang::exec(
+      yardstick::roc_auc,
+      data = pred_dt,
+      truth = rlang::expr(lithostrat_id),
+      !!!rlang::syms(prob_cols),
+      estimator = "macro_weighted"
     )
-
-    # Per-class metrics
-    per_class_df <- per_class_metrics(pred_dt)
-
-    list(
-        predictions = pred_dt,
-        metrics = metrics,
-        confusion_matrix = cm,
-        per_class_metrics = per_class_df
-    )
+  } else {
+    roc_tbl <- NULL
+    warning("Multiclass AUC skipped: no .pred_* columns found.")
+  }
+  
+  metrics <- dplyr::bind_rows(acc_tbl, mnll_tbl, roc_tbl)
+  data.table::setDT(metrics)
+  
+  # Confusion matrix
+  cm <- yardstick::conf_mat(pred_dt, 
+                            truth = lithostrat_id,
+                            estimate = .pred_class)
+  
+  # Per-class metrics
+  per_class_df <- per_class_metrics(pred_dt)
+  
+  list(
+    predictions = pred_dt,
+    metrics = metrics,
+    confusion_matrix = cm,
+    per_class_metrics = per_class_df
+  )
 }
 
 # Convert confusion matrix to data frame for kable
 conf_mat_to_df <- function(cm) {
-    as.data.frame.matrix(cm$table)
+  as.data.frame.matrix(cm$table)
 }
 ```
 
@@ -223,22 +221,40 @@ list.files(results_folder)
 
 train_dt <- fread(here(
     results_folder,
-    "train_binned_true_0.6_42_additive.csv"
+    "train_binned_true_0.6_42_multiplicative.csv"
 ))
 test_dt <- fread(here(
     results_folder,
-    "test_binned_true_0.6_42_additive.csv"
+    "test_binned_true_0.6_42_multiplicative.csv"
 ))
 # factor lithostrat_id
 # remove Onbekend
+segments_oi <- c(
+    "Quartair",
+    "Diest",
+    "Bolderberg",
+    "Sint_Huibrechts_Hern",
+    "Ursel",
+    "Asse",
+    "Wemmel",
+    "Lede",
+    "Brussel",
+    "Merelbeke",
+    "Kwatrecht",
+    "Mont_Panisel",
+    "Aalbeke",
+    "Mons_en_Pevele"
+)
+train_dt <- train_dt[lithostrat_id %in% segments_oi]
+test_dt <- test_dt[lithostrat_id %in% segments_oi]
 train_dt <- train_dt[lithostrat_id != "Onbekend"]
 test_dt <- test_dt[lithostrat_id != "Onbekend"]
-levels_litho <- unique(c(
-    train_dt$lithostrat_id,
-    test_dt$lithostrat_id
-))
-train_dt[, lithostrat_id := factor(lithostrat_id, levels = levels_litho)]
-test_dt[, lithostrat_id := factor(lithostrat_id, levels = levels_litho)]
+# levels_litho <- unique(c(
+#     train_dt$lithostrat_id,
+#     test_dt$lithostrat_id
+# ))
+train_dt[, lithostrat_id := factor(lithostrat_id, levels = segments_oi)]
+test_dt[, lithostrat_id := factor(lithostrat_id, levels = segments_oi)]
 
 ```
 

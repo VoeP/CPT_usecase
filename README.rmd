@@ -83,11 +83,14 @@ Arguments:
 
 #### Train/test split reproduction
 
-If you prefer to work on raw (unbinned) CPT rows, you can still reproduce the exact train/test split by loading results/split_res.pkl (pickled dict with keys train_ids and test_ids) and filtering your dataset by sondering_id accordingly. This guarantees consistency with the split used to generate the binned outputs.
+If you prefer to work on raw (unbinned) CPT rows, you can still reproduce the exact train/test split by loading results/split_res.json (pickled dict with keys train_ids and test_ids) and filtering your dataset by sondering_id accordingly. This guarantees consistency with the split used to generate the binned outputs.
 
 
-```python
-import pickle
-with open("results" / "split_res.pkl", "rb") as f:
-    loaded = pickle.load(f)
+```{python}
+import json
+with open("results/split_res.json", "r") as f:
+    test_train = json.load(f)
+#print("IDS", test_train)
+print("Train IDs:", test_train["train_ids"])
+print("Test   IDs:", test_train["test_ids"])
 ```
