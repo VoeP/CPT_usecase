@@ -10,7 +10,7 @@ PDS Model — Python conversion focused on preprocessing only:
 - Train/test split of sondering_id (stratified by dominant class)
 - Output: data modeling_features_df.csv
 """
-import pickle
+import json
 from pathlib import Path
 from collections import Counter
 import argparse
@@ -34,7 +34,7 @@ SET_SEED = 42
 TH_QC20 = 20
 TH_QC40 = 40
 
-EXTRACT_TREND_TYPE = "additive"
+EXTRACT_TREND_TYPE = "multiplicative"
 
 print("Parameters:")
 print("  EXTRACT_TREND:", EXTRACT_TREND)
@@ -263,12 +263,20 @@ def process_cpt_data(
 
     print("Train IDs:", len(train_ids))
     print("Test   IDs:", len(test_ids))
-    with open(results_folder / "split_res.pkl", "wb") as f:
-        pickle.dump(split_res, f)
+
+    split_res_json = {
+        **split_res,
+        "train_ids": split_res["train_ids"].tolist(),
+        "test_ids": split_res["test_ids"].tolist(),
+        "seed": int(split_res["seed"])
+    }
+    with open(results_folder / "split_res.json", "w") as f:
+        json.dump(split_res_json, f)
 
     # optional trend extraction
     if do_extract_trend:
-        feat_cols_trend = [c for c in ["qc", "fs", "rf", "qtn", "fr"] if c in cpt_df.columns]
+        #"rf", "qtn", "fr"]
+        feat_cols_trend = [c for c in ["qc", "fs", "qtn"] if c in cpt_df.columns]
         if feat_cols_trend:
             cpt_df = cpt_df.sort_values(["sondering_id", "diepte"]).copy()
 
@@ -295,7 +303,7 @@ def process_cpt_data(
     #feature engineering
     id_col = "sondering_id"
     depth_col = "diepte"
-    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr"] if c in cpt_df.columns]
+    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte", "diepte_mtaw"] if c in cpt_df.columns]
     geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in cpt_df.columns]
 
     # np stats with na handling
