@@ -273,10 +273,25 @@ def process_cpt_data(
     with open(results_folder / "split_res.json", "w") as f:
         json.dump(split_res_json, f)
 
+    # order + bin
+    id_col = "sondering_id"
+    depth_col = "diepte"
+    cpt_df = cpt_df.sort_values([id_col, depth_col]).copy()
+    max_depth = float(cpt_df[depth_col].max())
+    # create bins
+    bins = np.arange(0, max_depth + bin_w, bin_w) if bin_w > 0 else np.array([0, max_depth or 1.0])
+    if len(bins) < 2:
+        bins = np.array([0, max_depth + (bin_w if bin_w > 0 else 1.0)])
+    cpt_df["depth_bin"] = pd.cut(cpt_df["diepte"], bins=bins, include_lowest=True, ordered=True)
+    # create raw QC column
+    cpt_df["QC_raw"] = cpt_df["qc"]
+
     # optional trend extraction
     if do_extract_trend:
+      
         #"rf", "qtn", "fr"]
         feat_cols_trend = [c for c in ["qc", "fs", "qtn"] if c in cpt_df.columns]
+       # feat_cols_trend_nms = [f"{c}_trend" for c in feat_cols_trend]
         if feat_cols_trend:
             cpt_df = cpt_df.sort_values(["sondering_id", "diepte"]).copy()
 
@@ -300,9 +315,8 @@ def process_cpt_data(
             cpt_df = (cpt_df.groupby("sondering_id", group_keys=False, observed=False)
                            .apply(_trend_and_fill))
 
-    #feature engineering
-    id_col = "sondering_id"
-    depth_col = "diepte"
+    #Stats for binning + whole
+
     feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte", "diepte_mtaw"] if c in cpt_df.columns]
     geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in cpt_df.columns]
 
@@ -335,14 +349,7 @@ def process_cpt_data(
         "q10": q10, "q50": q50, "q90": q90, "cv": cv
     }
 
-    # order + bin
-    cpt_df = cpt_df.sort_values([id_col, depth_col]).copy()
-    max_depth = float(cpt_df[depth_col].max())
-    # BUGFIX: use the function argument `bin_w`, not a global BIN_W
-    bins = np.arange(0, max_depth + bin_w, bin_w) if bin_w > 0 else np.array([0, max_depth or 1.0])
-    if len(bins) < 2:
-        bins = np.array([0, max_depth + (bin_w if bin_w > 0 else 1.0)])
-    cpt_df["depth_bin"] = pd.cut(cpt_df["diepte"], bins=bins, include_lowest=True, ordered=True)
+
     # save cpt_df with cols sondering_id, diepte, depth_bin, lithostrat_id
    
     # unique lithostrat per bin
@@ -354,8 +361,13 @@ def process_cpt_data(
     
 
     # aggregations
-    summaries_bin = agg_features(cpt_df, feat_cols, [id_col, "depth_bin"], stats) if feat_cols else pd.DataFrame()
-    summaries_whole = agg_features(cpt_df, geog_cols, [id_col], stats, suffix="_whole") if geog_cols else pd.DataFrame()
+    summaries_bin = agg_features(cpt_df, 
+                                 feat_cols, 
+                                 [id_col, "depth_bin"],
+                                   stats) if feat_cols else pd.DataFrame()
+    summaries_whole = agg_features(cpt_df, geog_cols, [id_col], 
+                                   stats, 
+                                   suffix="_whole") if geog_cols else pd.DataFrame()
 
     # merge (careful with empty frames)
     if summaries_bin.empty and not summaries_whole.empty:
@@ -375,10 +387,10 @@ def process_cpt_data(
     dt = dt[~dt["lithostrat_id"].isna()].copy()
 
     # QC spikes
-    if "qc" in cpt_df.columns and not cpt_df["qc"].isna().all():
-        qc_ok = cpt_df.dropna(subset=["qc"]).copy()
+    if "QC_raw" in cpt_df.columns and not cpt_df["QC_raw"].isna().all():
+        qc_ok = cpt_df.dropna(subset=["QC_raw"]).copy()
         qc_spikes = (
-            qc_ok.groupby([id_col, "depth_bin"], dropna=False, observed=False)["qc"]
+            qc_ok.groupby([id_col, "depth_bin"], dropna=False, observed=False)["QC_raw"]
                  .agg(
                      qc_frac_gt20=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC20),
                      qc_frac_gt40=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC40),
@@ -431,9 +443,9 @@ def main():
     Command-line entry point with argument parsing.
     
     Usage:
-        python data_processing.py
-        python data_processing.py --extract_trend False --bin_w 0.5 --seed 123
-        python data_processing.py --trend_type multiplicative
+        python modeling/data_processing.py
+        python modeling/data_processing.py --extract_trend False --bin_w 0.5 --seed 123
+        python modeling/data_processing.py --trend_type multiplicative
     """
     parser = argparse.ArgumentParser(
         description="CPT data preprocessing pipeline for geological feature extraction"
