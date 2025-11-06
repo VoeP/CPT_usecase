@@ -4,8 +4,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, FunctionTransformer
 import random
 
+#############################
+# Global defaults
+#############################
 seed = 22 #current date
-
+val_fraction: float = 0.8
 segments_oi = [  # example segments of interest (same as the ones from the company's excel sheet)
 "Quartair",
 "Diest",
@@ -25,6 +28,10 @@ segments_oi = [  # example segments of interest (same as the ones from the compa
 
 invalid_labels = {"", "none", "nan", "onbekend"}
 default_num_vars = ["qc", "fs", "rf", "qtn", "fr", "icn", "sbt", "ksbt"]
+
+#############################
+# Class definition
+#############################
 
 class DataSet():
 
@@ -81,9 +88,9 @@ class DataSet():
     
     def simple_split(
         self,
-        val_frac: float = 0.2,
+        val_frac: float = val_fraction,
         group_col: str = "sondering_id",
-        random_state: int | None = None,
+        random_state: int | None = seed,
         *,
         use_imputation: bool = True,
         drop_na_if_not_imputed: bool = True,
@@ -345,8 +352,8 @@ def extract_features(
 def simple_split(
     df: pd.DataFrame,
     group_col: str = "sondering_id",
-    val_frac: float = 0.3,
-    random_state: int | None = None,
+    val_frac: float = val_fraction,
+    random_state: int | None = seed,
 ):
     """
     Group-based train/validation split.
@@ -376,14 +383,14 @@ def tile_split(
     df: pd.DataFrame,
     Gx: int = 4,
     Gy: int = 4,
-    train_frac: float = 0.3,
-    random_state: int | None = None,
+    train_frac: float = val_fraction,
+    random_state: int | None = seed,
     *,
     x_col: str = "x",
     y_col: str = "y",
     cpt_col: str = "sondeernummer",
     label_col: str = "lithostrat_id",
-    extra_id_cols=None,
+    extra_id_cols = None,
 ):
     """
     Tile-based spatial split.
@@ -396,13 +403,15 @@ def tile_split(
     """
 
     if random_state is None:
-        random_state = seed
+        rng = np.random.default_rng()
+    else:
+        rng = np.random.default_rng(random_state)
 
     feat = df.copy()
 
     # build grid
-    feat["xbin"] = pd.qcut(feat[x_col], q=Gx, labels=False, duplicates="drop").astype(int)
-    feat["ybin"] = pd.qcut(feat[y_col], q=Gy, labels=False, duplicates="drop").astype(int)
+    feat["xbin"] = pd.qcut(feat[x_col], q = Gx, labels = False, duplicates="drop").astype(int)
+    feat["ybin"] = pd.qcut(feat[y_col], q = Gy, labels = False, duplicates="drop").astype(int)
     feat["tile"] = feat["xbin"] * Gy + feat["ybin"]
 
     # tile stats (you can later add a verbose flag if you want less output)
@@ -412,10 +421,9 @@ def tile_split(
     print(f"Total number of unique tiles: {n_tiles}")
 
     # choose train tiles
-    rng = np.random.default_rng(random_state)
-    train_tile_count = max(1, int(np.ceil(n_tiles * train_frac)))
     all_tiles = feat["tile"].unique()
-    train_tiles = set(rng.choice(all_tiles, size=train_tile_count, replace=False))
+    train_tile_count = max(1, int(np.ceil(n_tiles * train_frac)))
+    train_tiles = set(rng.choice(all_tiles, size = train_tile_count, replace = False))
     test_tiles = set(all_tiles) - train_tiles
 
     print(f"Training tiles ({len(train_tiles)}): {sorted(train_tiles)}")
@@ -455,7 +463,7 @@ def loo_cv(
     *,
     label_col: str = "layer_label",
     cpt_col: str = "sondeernummer",
-    extra_id_cols=None,
+    extra_id_cols = None,
 ):
     """
     Basis for leave-one-tile-out cross-validation.
