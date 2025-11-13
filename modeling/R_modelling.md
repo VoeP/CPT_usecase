@@ -217,34 +217,41 @@ cat("Results folder:", results_folder, "\n")
 list.files(results_folder)
 ```
 
-     [1] "cpt_features_true_0.6_42_additive.csv"      
-     [2] "cpt_features_true_0.6_42_multiplicative.csv"
-     [3] "cpt_ids_true_0.6_42_additive.csv"           
-     [4] "cpt_ids_true_0.6_42_multiplicative.csv"     
-     [5] "split_res.json"                             
-     [6] "split_res.pkl"                              
-     [7] "test_binned_true_0.6_42_additive.csv"       
-     [8] "test_binned_true_0.6_42_multiplicative.csv" 
-     [9] "train_binned_true_0.6_42_additive.csv"      
-    [10] "train_binned_true_0.6_42_multiplicative.csv"
+     [1] "cpt_features_true_0.6_100_multiplicative.csv"
+     [2] "cpt_features_true_0.6_42_additive.csv"       
+     [3] "cpt_features_true_0.6_42_multiplicative.csv" 
+     [4] "cpt_ids_true_0.6_100_multiplicative.csv"     
+     [5] "cpt_ids_true_0.6_42_additive.csv"            
+     [6] "cpt_ids_true_0.6_42_multiplicative.csv"      
+     [7] "predictions_r_models"                        
+     [8] "split_res.json"                              
+     [9] "split_res.pkl"                               
+    [10] "test_binned_true_0.6_100_multiplicative.csv" 
+    [11] "test_binned_true_0.6_42_additive.csv"        
+    [12] "test_binned_true_0.6_42_multiplicative.csv"  
+    [13] "train_binned_true_0.6_100_multiplicative.csv"
+    [14] "train_binned_true_0.6_42_additive.csv"       
+    [15] "train_binned_true_0.6_42_multiplicative.csv" 
 
 ``` r
 train_dt <- fread(here(
     results_folder,
-    "train_binned_true_0.6_42_multiplicative.csv"
-))
+    "train_binned_true_0.6_100_multiplicative.csv"
+)) |>
+  select(sondering_id, depth_bin, lithostrat_id, everything())
 test_dt <- fread(here(
     results_folder,
-    "test_binned_true_0.6_42_multiplicative.csv"
-))
+    "test_binned_true_0.6_100_multiplicative.csv"
+)) |>
+  select(sondering_id, depth_bin, lithostrat_id, everything())
 train_dt[, unique(lithostrat_id)]
 ```
 
      [1] "Quartair"             "Mont_Panisel"         "Aalbeke"             
      [4] "Mons_en_Pevele"       "Maldegem"             "Brussel"             
-     [7] "Onbekend"             "Ursel"                "Asse"                
-    [10] "Wemmel"               "Bolderberg"           "Merelbeke"           
-    [13] "Kwatrecht"            "Lede"                 "Antropogeen"         
+     [7] "Onbekend"             "Asse"                 "Wemmel"              
+    [10] "Lede"                 "Bolderberg"           "Ursel"               
+    [13] "Merelbeke"            "Kwatrecht"            "Antropogeen"         
     [16] "Diest"                "Sint_Huibrechts_Hern"
 
 ``` r
@@ -443,7 +450,7 @@ test set… Completed
 toc()
 ```
 
-3032.175 sec elapsed
+6572.855 sec elapsed
 
 ## Results Summary
 
@@ -465,76 +472,134 @@ for (model_name in names(results)) {
 
 | mtry | trees | min_n | tree_depth | learn_rate | loss_reduction | sample_size | .metric | .estimator | mean | n | std_err | .config |
 |---:|---:|---:|---:|---:|---:|---:|:---|:---|---:|---:|---:|:---|
-| 5 | 297 | 5 | 3 | 0.0094634 | 0.0000000 | 0.4129629 | accuracy | multiclass | 0.7022063 | 10 | 0.0195835 | pre0_mod01_post0 |
-| 5 | 297 | 5 | 3 | 0.0094634 | 0.0000000 | 0.4129629 | mn_log_loss | multiclass | 1.0493659 | 10 | 0.0418985 | pre0_mod01_post0 |
-| 11 | 420 | 29 | 15 | 0.0023303 | 2.6422084 | 0.4781826 | accuracy | multiclass | 0.6563237 | 10 | 0.0251451 | pre0_mod02_post0 |
-| 11 | 420 | 29 | 15 | 0.0023303 | 2.6422084 | 0.4781826 | mn_log_loss | multiclass | 1.5726497 | 10 | 0.0330254 | pre0_mod02_post0 |
-| 25 | 887 | 13 | 9 | 0.0012530 | 0.1911300 | 0.1985896 | accuracy | multiclass | 0.6593439 | 10 | 0.0229730 | pre0_mod03_post0 |
-| 25 | 887 | 13 | 9 | 0.0012530 | 0.1911300 | 0.1985896 | mn_log_loss | multiclass | 1.5126070 | 10 | 0.0336780 | pre0_mod03_post0 |
-| 34 | 1958 | 38 | 8 | 0.0419831 | 0.0000000 | 0.2979045 | accuracy | multiclass | 0.6666642 | 10 | 0.0196869 | pre0_mod04_post0 |
-| 34 | 1958 | 38 | 8 | 0.0419831 | 0.0000000 | 0.2979045 | mn_log_loss | multiclass | 1.0239970 | 10 | 0.0632980 | pre0_mod04_post0 |
-| 37 | 1550 | 8 | 13 | 0.0266249 | 0.0070468 | 0.5619981 | accuracy | multiclass | 0.7249447 | 10 | 0.0116852 | pre0_mod05_post0 |
-| 37 | 1550 | 8 | 13 | 0.0266249 | 0.0070468 | 0.5619981 | mn_log_loss | multiclass | 0.8759102 | 10 | 0.0613457 | pre0_mod05_post0 |
-| 49 | 1081 | 17 | 6 | 0.0043163 | 0.0627205 | 0.1260413 | accuracy | multiclass | 0.6611649 | 10 | 0.0208381 | pre0_mod06_post0 |
-| 49 | 1081 | 17 | 6 | 0.0043163 | 0.0627205 | 0.1260413 | mn_log_loss | multiclass | 1.1181139 | 10 | 0.0530012 | pre0_mod06_post0 |
-| 56 | 646 | 15 | 11 | 0.2538757 | 0.0000034 | 0.9043393 | accuracy | multiclass | 0.7133430 | 10 | 0.0139271 | pre0_mod07_post0 |
-| 56 | 646 | 15 | 11 | 0.2538757 | 0.0000034 | 0.9043393 | mn_log_loss | multiclass | 1.0077684 | 10 | 0.0773353 | pre0_mod07_post0 |
-| 68 | 1247 | 25 | 5 | 0.0162167 | 0.0000099 | 0.9103769 | accuracy | multiclass | 0.7024083 | 10 | 0.0123083 | pre0_mod08_post0 |
-| 68 | 1247 | 25 | 5 | 0.0162167 | 0.0000099 | 0.9103769 | mn_log_loss | multiclass | 0.8696971 | 10 | 0.0536161 | pre0_mod08_post0 |
-| 76 | 1692 | 24 | 2 | 0.0643893 | 0.0000001 | 0.8081360 | accuracy | multiclass | 0.7034568 | 10 | 0.0127158 | pre0_mod09_post0 |
-| 76 | 1692 | 24 | 2 | 0.0643893 | 0.0000001 | 0.8081360 | mn_log_loss | multiclass | 0.9676415 | 10 | 0.0658539 | pre0_mod09_post0 |
-| 85 | 38 | 33 | 10 | 0.1392561 | 0.0006256 | 0.7269481 | accuracy | multiclass | 0.7063387 | 10 | 0.0128166 | pre0_mod10_post0 |
-| 85 | 38 | 33 | 10 | 0.1392561 | 0.0006256 | 0.7269481 | mn_log_loss | multiclass | 0.8942211 | 10 | 0.0466513 | pre0_mod10_post0 |
+| 5 | 79 | 27 | 8 | 0.0608613 | 2.8035324 | 0.3497933 | accuracy | multiclass | 0.6462328 | 10 | 0.0297998 | pre0_mod01_post0 |
+| 5 | 79 | 27 | 8 | 0.0608613 | 2.8035324 | 0.3497933 | mn_log_loss | multiclass | 1.1231528 | 10 | 0.0781518 | pre0_mod01_post0 |
+| 5 | 1695 | 4 | 13 | 0.0010761 | 1.1141530 | 0.7539592 | accuracy | multiclass | 0.6928266 | 10 | 0.0229429 | pre0_mod02_post0 |
+| 5 | 1695 | 4 | 13 | 0.0010761 | 1.1141530 | 0.7539592 | mn_log_loss | multiclass | 1.2099147 | 10 | 0.0591211 | pre0_mod02_post0 |
+| 12 | 411 | 31 | 2 | 0.0127187 | 0.0021171 | 0.6736923 | accuracy | multiclass | 0.6503160 | 10 | 0.0261592 | pre0_mod03_post0 |
+| 12 | 411 | 31 | 2 | 0.0127187 | 0.0021171 | 0.6736923 | mn_log_loss | multiclass | 1.0916498 | 10 | 0.0718992 | pre0_mod03_post0 |
+| 15 | 1850 | 17 | 12 | 0.1022960 | 0.0000002 | 0.5799099 | accuracy | multiclass | 0.6935757 | 10 | 0.0222948 | pre0_mod04_post0 |
+| 15 | 1850 | 17 | 12 | 0.1022960 | 0.0000002 | 0.5799099 | mn_log_loss | multiclass | 1.0792589 | 10 | 0.0976227 | pre0_mod04_post0 |
+| 19 | 1081 | 25 | 14 | 0.0033337 | 0.0000026 | 0.1551031 | accuracy | multiclass | 0.6102566 | 10 | 0.0297164 | pre0_mod05_post0 |
+| 19 | 1081 | 25 | 14 | 0.0033337 | 0.0000026 | 0.1551031 | mn_log_loss | multiclass | 1.3215103 | 10 | 0.0828097 | pre0_mod05_post0 |
+| 23 | 1349 | 24 | 11 | 0.0017564 | 0.0000059 | 0.4686107 | accuracy | multiclass | 0.6652434 | 10 | 0.0271230 | pre0_mod06_post0 |
+| 23 | 1349 | 24 | 11 | 0.0017564 | 0.0000059 | 0.4686107 | mn_log_loss | multiclass | 1.2040538 | 10 | 0.0693635 | pre0_mod06_post0 |
+| 27 | 744 | 38 | 15 | 0.0447986 | 0.0000000 | 0.2662227 | accuracy | multiclass | 0.6376995 | 10 | 0.0306738 | pre0_mod07_post0 |
+| 27 | 744 | 38 | 15 | 0.0447986 | 0.0000000 | 0.2662227 | mn_log_loss | multiclass | 1.1353928 | 10 | 0.0901179 | pre0_mod07_post0 |
+| 34 | 1515 | 39 | 5 | 0.0022958 | 0.0000589 | 0.2827376 | accuracy | multiclass | 0.6147879 | 10 | 0.0303581 | pre0_mod08_post0 |
+| 34 | 1515 | 39 | 5 | 0.0022958 | 0.0000589 | 0.2827376 | mn_log_loss | multiclass | 1.2722995 | 10 | 0.0801670 | pre0_mod08_post0 |
+| 36 | 130 | 33 | 4 | 0.0141256 | 0.4414687 | 0.1423113 | accuracy | multiclass | 0.5497527 | 10 | 0.0315819 | pre0_mod09_post0 |
+| 36 | 130 | 33 | 4 | 0.0141256 | 0.4414687 | 0.1423113 | mn_log_loss | multiclass | 1.6315059 | 10 | 0.0656020 | pre0_mod09_post0 |
+| 44 | 270 | 11 | 3 | 0.2418692 | 0.0000000 | 0.9894672 | accuracy | multiclass | 0.6834161 | 10 | 0.0252142 | pre0_mod10_post0 |
+| 44 | 270 | 11 | 3 | 0.2418692 | 0.0000000 | 0.9894672 | mn_log_loss | multiclass | 1.1250264 | 10 | 0.1181781 | pre0_mod10_post0 |
+| 44 | 1182 | 10 | 8 | 0.0236322 | 0.0000000 | 0.8520422 | accuracy | multiclass | 0.6990144 | 10 | 0.0216479 | pre0_mod11_post0 |
+| 44 | 1182 | 10 | 8 | 0.0236322 | 0.0000000 | 0.8520422 | mn_log_loss | multiclass | 1.0382582 | 10 | 0.0929633 | pre0_mod11_post0 |
+| 50 | 891 | 22 | 13 | 0.2228520 | 0.0000453 | 0.9252419 | accuracy | multiclass | 0.6933974 | 10 | 0.0224689 | pre0_mod12_post0 |
+| 50 | 891 | 22 | 13 | 0.2228520 | 0.0000453 | 0.9252419 | mn_log_loss | multiclass | 1.1471897 | 10 | 0.1005738 | pre0_mod12_post0 |
+| 54 | 1722 | 20 | 5 | 0.0764287 | 0.0115276 | 0.7209766 | accuracy | multiclass | 0.6993243 | 10 | 0.0212266 | pre0_mod13_post0 |
+| 54 | 1722 | 20 | 5 | 0.0764287 | 0.0115276 | 0.7209766 | mn_log_loss | multiclass | 1.0902105 | 10 | 0.0985018 | pre0_mod13_post0 |
+| 61 | 560 | 13 | 7 | 0.0313584 | 0.0046225 | 0.4474373 | accuracy | multiclass | 0.7079453 | 10 | 0.0225255 | pre0_mod14_post0 |
+| 61 | 560 | 13 | 7 | 0.0313584 | 0.0046225 | 0.4474373 | mn_log_loss | multiclass | 0.9482662 | 10 | 0.0862200 | pre0_mod14_post0 |
+| 65 | 692 | 14 | 1 | 0.0089412 | 0.0000003 | 0.5131386 | accuracy | multiclass | 0.6130660 | 10 | 0.0324245 | pre0_mod15_post0 |
+| 65 | 692 | 14 | 1 | 0.0089412 | 0.0000003 | 0.5131386 | mn_log_loss | multiclass | 1.2141991 | 10 | 0.0758175 | pre0_mod15_post0 |
+| 67 | 1214 | 34 | 10 | 0.0072295 | 0.0000000 | 0.2201001 | accuracy | multiclass | 0.6315441 | 10 | 0.0310988 | pre0_mod16_post0 |
+| 67 | 1214 | 34 | 10 | 0.0072295 | 0.0000000 | 0.2201001 | mn_log_loss | multiclass | 1.1930187 | 10 | 0.0889955 | pre0_mod16_post0 |
+| 73 | 1963 | 17 | 7 | 0.0025343 | 0.0459465 | 0.3913554 | accuracy | multiclass | 0.6877947 | 10 | 0.0235976 | pre0_mod17_post0 |
+| 73 | 1963 | 17 | 7 | 0.0025343 | 0.0459465 | 0.3913554 | mn_log_loss | multiclass | 1.0075825 | 10 | 0.0781290 | pre0_mod17_post0 |
+| 76 | 988 | 6 | 3 | 0.1575022 | 20.7752527 | 0.8066164 | accuracy | multiclass | 0.6571827 | 10 | 0.0242280 | pre0_mod18_post0 |
+| 76 | 988 | 6 | 3 | 0.1575022 | 20.7752527 | 0.8066164 | mn_log_loss | multiclass | 1.0921228 | 10 | 0.0750442 | pre0_mod18_post0 |
+| 83 | 1407 | 30 | 11 | 0.0408536 | 0.0000000 | 0.5967655 | accuracy | multiclass | 0.6909838 | 10 | 0.0218295 | pre0_mod19_post0 |
+| 83 | 1407 | 30 | 11 | 0.0408536 | 0.0000000 | 0.5967655 | mn_log_loss | multiclass | 1.0138433 | 10 | 0.0841612 | pre0_mod19_post0 |
+| 85 | 397 | 3 | 9 | 0.0046651 | 0.0002821 | 0.8950980 | accuracy | multiclass | 0.6834577 | 10 | 0.0227239 | pre0_mod20_post0 |
+| 85 | 397 | 3 | 9 | 0.0046651 | 0.0002821 | 0.8950980 | mn_log_loss | multiclass | 1.2220257 | 10 | 0.0565208 | pre0_mod20_post0 |
 
 #### RF Tuning Metrics
 
 | mtry | trees | min_n | .metric     | .estimator |      mean |   n |   std_err | .config          |
 |-----:|------:|------:|:------------|:-----------|----------:|----:|----------:|:-----------------|
-|    1 |  1322 |    22 | accuracy    | multiclass | 0.6980494 |  10 | 0.0229167 | pre0_mod01_post0 |
-|    1 |  1322 |    22 | mn_log_loss | multiclass | 1.0071894 |  10 | 0.0477305 | pre0_mod01_post0 |
-|   13 |  1782 |    28 | accuracy    | multiclass | 0.7308354 |  10 | 0.0170808 | pre0_mod02_post0 |
-|   13 |  1782 |    28 | mn_log_loss | multiclass | 0.8246680 |  10 | 0.0432792 | pre0_mod02_post0 |
-|   26 |   988 |    20 | accuracy    | multiclass | 0.7396691 |  10 | 0.0172138 | pre0_mod03_post0 |
-|   26 |   988 |    20 | mn_log_loss | multiclass | 0.7847761 |  10 | 0.0435440 | pre0_mod03_post0 |
-|   33 |   637 |    32 | accuracy    | multiclass | 0.7274942 |  10 | 0.0184683 | pre0_mod04_post0 |
-|   33 |   637 |    32 | mn_log_loss | multiclass | 0.8077580 |  10 | 0.0420345 | pre0_mod04_post0 |
-|   40 |  1158 |     6 | accuracy    | multiclass | 0.7415758 |  10 | 0.0169014 | pre0_mod05_post0 |
-|   40 |  1158 |     6 | mn_log_loss | multiclass | 0.7660332 |  10 | 0.0505253 | pre0_mod05_post0 |
-|   49 |   437 |    10 | accuracy    | multiclass | 0.7428908 |  10 | 0.0159778 | pre0_mod06_post0 |
-|   49 |   437 |    10 | mn_log_loss | multiclass | 0.7733942 |  10 | 0.0450667 | pre0_mod06_post0 |
-|   58 |  1546 |    15 | accuracy    | multiclass | 0.7384983 |  10 | 0.0163823 | pre0_mod07_post0 |
-|   58 |  1546 |    15 | mn_log_loss | multiclass | 0.7765649 |  10 | 0.0439357 | pre0_mod07_post0 |
-|   67 |    59 |     9 | accuracy    | multiclass | 0.7358849 |  10 | 0.0172504 | pre0_mod08_post0 |
-|   67 |    59 |     9 | mn_log_loss | multiclass | 0.9237516 |  10 | 0.0796525 | pre0_mod08_post0 |
-|   73 |  1968 |    37 | accuracy    | multiclass | 0.7223534 |  10 | 0.0188076 | pre0_mod09_post0 |
-|   73 |  1968 |    37 | mn_log_loss | multiclass | 0.8132765 |  10 | 0.0421253 | pre0_mod09_post0 |
-|   84 |   210 |    32 | accuracy    | multiclass | 0.7274419 |  10 | 0.0170507 | pre0_mod10_post0 |
-|   84 |   210 |    32 | mn_log_loss | multiclass | 0.8120708 |  10 | 0.0423082 | pre0_mod10_post0 |
+|    5 |  1675 |    17 | accuracy    | multiclass | 0.6899585 |  10 | 0.0208959 | pre0_mod01_post0 |
+|    5 |  1675 |    17 | mn_log_loss | multiclass | 0.9504773 |  10 | 0.0569039 | pre0_mod01_post0 |
+|    8 |  1041 |    13 | accuracy    | multiclass | 0.6956852 |  10 | 0.0199818 | pre0_mod02_post0 |
+|    8 |  1041 |    13 | mn_log_loss | multiclass | 0.9152780 |  10 | 0.0580219 | pre0_mod02_post0 |
+|   11 |  1587 |     7 | accuracy    | multiclass | 0.7009565 |  10 | 0.0197557 | pre0_mod03_post0 |
+|   11 |  1587 |     7 | mn_log_loss | multiclass | 0.8897870 |  10 | 0.0586776 | pre0_mod03_post0 |
+|   15 |  1385 |    10 | accuracy    | multiclass | 0.7034961 |  10 | 0.0193273 | pre0_mod04_post0 |
+|   15 |  1385 |    10 | mn_log_loss | multiclass | 0.8878444 |  10 | 0.0594690 | pre0_mod04_post0 |
+|   22 |   712 |    19 | accuracy    | multiclass | 0.7003034 |  10 | 0.0206017 | pre0_mod05_post0 |
+|   22 |   712 |    19 | mn_log_loss | multiclass | 0.8996096 |  10 | 0.0613134 | pre0_mod05_post0 |
+|   26 |    84 |     9 | accuracy    | multiclass | 0.7024715 |  10 | 0.0205680 | pre0_mod06_post0 |
+|   26 |    84 |     9 | mn_log_loss | multiclass | 0.9690274 |  10 | 0.0924843 | pre0_mod06_post0 |
+|   27 |  1818 |    35 | accuracy    | multiclass | 0.6926813 |  10 | 0.0212956 | pre0_mod07_post0 |
+|   27 |  1818 |    35 | mn_log_loss | multiclass | 0.9249154 |  10 | 0.0610687 | pre0_mod07_post0 |
+|   32 |   419 |    32 | accuracy    | multiclass | 0.6959563 |  10 | 0.0208574 | pre0_mod08_post0 |
+|   32 |   419 |    32 | mn_log_loss | multiclass | 0.9187072 |  10 | 0.0620025 | pre0_mod08_post0 |
+|   36 |   587 |     3 | accuracy    | multiclass | 0.7071665 |  10 | 0.0194489 | pre0_mod09_post0 |
+|   36 |   587 |     3 | mn_log_loss | multiclass | 0.9184279 |  10 | 0.0752666 | pre0_mod09_post0 |
+|   41 |   333 |    23 | accuracy    | multiclass | 0.6985887 |  10 | 0.0211381 | pre0_mod10_post0 |
+|   41 |   333 |    23 | mn_log_loss | multiclass | 0.9075736 |  10 | 0.0640946 | pre0_mod10_post0 |
+|   44 |  1289 |    34 | accuracy    | multiclass | 0.6971089 |  10 | 0.0224594 | pre0_mod11_post0 |
+|   44 |  1289 |    34 | mn_log_loss | multiclass | 0.9203783 |  10 | 0.0625669 | pre0_mod11_post0 |
+|   50 |   613 |    14 | accuracy    | multiclass | 0.7047793 |  10 | 0.0212578 | pre0_mod12_post0 |
+|   50 |   613 |    14 | mn_log_loss | multiclass | 0.8887836 |  10 | 0.0652056 | pre0_mod12_post0 |
+|   53 |  1200 |    23 | accuracy    | multiclass | 0.7012355 |  10 | 0.0211272 | pre0_mod13_post0 |
+|   53 |  1200 |    23 | mn_log_loss | multiclass | 0.9019953 |  10 | 0.0628439 | pre0_mod13_post0 |
+|   57 |   244 |    25 | accuracy    | multiclass | 0.7010105 |  10 | 0.0230368 | pre0_mod14_post0 |
+|   57 |   244 |    25 | mn_log_loss | multiclass | 0.9219002 |  10 | 0.0704328 | pre0_mod14_post0 |
+|   65 |   958 |    28 | accuracy    | multiclass | 0.6990086 |  10 | 0.0228398 | pre0_mod15_post0 |
+|   65 |   958 |    28 | mn_log_loss | multiclass | 0.9121248 |  10 | 0.0652853 | pre0_mod15_post0 |
+|   66 |   186 |    29 | accuracy    | multiclass | 0.6988793 |  10 | 0.0229306 | pre0_mod16_post0 |
+|   66 |   186 |    29 | mn_log_loss | multiclass | 0.9341155 |  10 | 0.0747614 | pre0_mod16_post0 |
+|   70 |  1737 |    16 | accuracy    | multiclass | 0.7040382 |  10 | 0.0217066 | pre0_mod17_post0 |
+|   70 |  1737 |    16 | mn_log_loss | multiclass | 0.8899855 |  10 | 0.0629584 | pre0_mod17_post0 |
+|   78 |  1474 |    36 | accuracy    | multiclass | 0.6986548 |  10 | 0.0232343 | pre0_mod18_post0 |
+|   78 |  1474 |    36 | mn_log_loss | multiclass | 0.9211332 |  10 | 0.0632018 | pre0_mod18_post0 |
+|   79 |   868 |    38 | accuracy    | multiclass | 0.6962287 |  10 | 0.0234956 | pre0_mod19_post0 |
+|   79 |   868 |    38 | mn_log_loss | multiclass | 0.9344799 |  10 | 0.0684705 | pre0_mod19_post0 |
+|   85 |  1996 |     5 | accuracy    | multiclass | 0.7052612 |  10 | 0.0215073 | pre0_mod20_post0 |
+|   85 |  1996 |     5 | mn_log_loss | multiclass | 0.9012700 |  10 | 0.0768314 | pre0_mod20_post0 |
 
 #### LGBM Tuning Metrics
 
 | mtry | trees | min_n | tree_depth | learn_rate | loss_reduction | sample_size | .metric | .estimator | mean | n | std_err | .config |
 |---:|---:|---:|---:|---:|---:|---:|:---|:---|---:|---:|---:|:---|
-| 5 | 932 | 17 | 7 | 0.0037343 | 10.5618371 | 0.6603661 | accuracy | multiclass | 0.7146519 | 10 | 0.0192157 | pre0_mod01_post0 |
-| 5 | 932 | 17 | 7 | 0.0037343 | 10.5618371 | 0.6603661 | mn_log_loss | multiclass | 0.8734304 | 10 | 0.0524855 | pre0_mod01_post0 |
-| 10 | 1142 | 32 | 4 | 0.0000001 | 0.0000999 | 0.2888438 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod02_post0 |
-| 10 | 1142 | 32 | 4 | 0.0000001 | 0.0000999 | 0.2888438 | mn_log_loss | multiclass | 2.0640519 | 10 | 0.0528521 | pre0_mod02_post0 |
-| 21 | 1655 | 38 | 4 | 0.0000000 | 0.0000001 | 0.1601417 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod03_post0 |
-| 21 | 1655 | 38 | 4 | 0.0000000 | 0.0000001 | 0.1601417 | mn_log_loss | multiclass | 2.0644458 | 10 | 0.0528585 | pre0_mod03_post0 |
-| 27 | 1551 | 23 | 1 | 0.0330461 | 0.0000040 | 0.5870954 | accuracy | multiclass | 0.7145484 | 10 | 0.0150161 | pre0_mod04_post0 |
-| 27 | 1551 | 23 | 1 | 0.0330461 | 0.0000040 | 0.5870954 | mn_log_loss | multiclass | 0.9175319 | 10 | 0.0936620 | pre0_mod04_post0 |
-| 43 | 159 | 8 | 12 | 0.0000152 | 0.0000000 | 0.9542964 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod05_post0 |
-| 43 | 159 | 8 | 12 | 0.0000152 | 0.0000000 | 0.9542964 | mn_log_loss | multiclass | 2.0509398 | 10 | 0.0525499 | pre0_mod05_post0 |
-| 47 | 680 | 3 | 6 | 0.0001697 | 0.0000132 | 0.4708015 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod06_post0 |
-| 47 | 680 | 3 | 6 | 0.0001697 | 0.0000132 | 0.4708015 | mn_log_loss | multiclass | 1.7093705 | 10 | 0.0506797 | pre0_mod06_post0 |
-| 58 | 1339 | 27 | 8 | 0.0000000 | 0.0022944 | 0.2209518 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod07_post0 |
-| 58 | 1339 | 27 | 8 | 0.0000000 | 0.0022944 | 0.2209518 | mn_log_loss | multiclass | 2.0644608 | 10 | 0.0528585 | pre0_mod07_post0 |
-| 66 | 418 | 10 | 14 | 0.0000017 | 0.0566046 | 0.4162612 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod08_post0 |
-| 66 | 418 | 10 | 14 | 0.0000017 | 0.0566046 | 0.4162612 | mn_log_loss | multiclass | 2.0606406 | 10 | 0.0527495 | pre0_mod08_post0 |
-| 76 | 394 | 19 | 14 | 0.0000000 | 0.2082535 | 0.7568843 | accuracy | multiclass | 0.3503219 | 10 | 0.0271738 | pre0_mod09_post0 |
-| 76 | 394 | 19 | 14 | 0.0000000 | 0.2082535 | 0.7568843 | mn_log_loss | multiclass | 2.0644426 | 10 | 0.0528580 | pre0_mod09_post0 |
-| 81 | 1869 | 34 | 10 | 0.0014577 | 0.0000000 | 0.8909146 | accuracy | multiclass | 0.7245393 | 10 | 0.0146631 | pre0_mod10_post0 |
-| 81 | 1869 | 34 | 10 | 0.0014577 | 0.0000000 | 0.8909146 | mn_log_loss | multiclass | 0.8695981 | 10 | 0.0657897 | pre0_mod10_post0 |
+| 4 | 1900 | 20 | 2 | 0.0000000 | 0.5873091 | 0.5295256 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod01_post0 |
+| 4 | 1900 | 20 | 2 | 0.0000000 | 0.5873091 | 0.5295256 | mn_log_loss | multiclass | 2.1120214 | 10 | 0.0756906 | pre0_mod01_post0 |
+| 9 | 953 | 33 | 12 | 0.0088443 | 0.0001441 | 0.4569949 | accuracy | multiclass | 0.7080520 | 10 | 0.0208471 | pre0_mod02_post0 |
+| 9 | 953 | 33 | 12 | 0.0088443 | 0.0001441 | 0.4569949 | mn_log_loss | multiclass | 1.0461617 | 10 | 0.1092936 | pre0_mod02_post0 |
+| 14 | 1415 | 31 | 4 | 0.0000000 | 0.0000370 | 0.3320076 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod03_post0 |
+| 14 | 1415 | 31 | 4 | 0.0000000 | 0.0000370 | 0.3320076 | mn_log_loss | multiclass | 2.1121016 | 10 | 0.0756954 | pre0_mod03_post0 |
+| 18 | 1517 | 10 | 14 | 0.0000000 | 0.0000000 | 0.4135592 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod04_post0 |
+| 18 | 1517 | 10 | 14 | 0.0000000 | 0.0000000 | 0.4135592 | mn_log_loss | multiclass | 2.1120647 | 10 | 0.0756915 | pre0_mod04_post0 |
+| 22 | 1306 | 13 | 5 | 0.0001226 | 0.0000001 | 0.1730588 | accuracy | multiclass | 0.3664547 | 10 | 0.0259969 | pre0_mod05_post0 |
+| 22 | 1306 | 13 | 5 | 0.0001226 | 0.0000001 | 0.1730588 | mn_log_loss | multiclass | 1.7393074 | 10 | 0.0626266 | pre0_mod05_post0 |
+| 26 | 691 | 5 | 8 | 0.0000003 | 0.0000020 | 0.6253956 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod06_post0 |
+| 26 | 691 | 5 | 8 | 0.0000003 | 0.0000020 | 0.6253956 | mn_log_loss | multiclass | 2.1111265 | 10 | 0.0755934 | pre0_mod06_post0 |
+| 30 | 1688 | 24 | 12 | 0.0000017 | 0.0422138 | 0.5790989 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod07_post0 |
+| 30 | 1688 | 24 | 12 | 0.0000017 | 0.0422138 | 0.5790989 | mn_log_loss | multiclass | 2.0988324 | 10 | 0.0744691 | pre0_mod07_post0 |
+| 34 | 1097 | 18 | 9 | 0.0000096 | 0.0000000 | 0.4907825 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod08_post0 |
+| 34 | 1097 | 18 | 9 | 0.0000096 | 0.0000000 | 0.4907825 | mn_log_loss | multiclass | 2.0662881 | 10 | 0.0717005 | pre0_mod08_post0 |
+| 37 | 518 | 36 | 10 | 0.0000411 | 0.0000005 | 0.1045997 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod09_post0 |
+| 37 | 518 | 36 | 10 | 0.0000411 | 0.0000005 | 0.1045997 | mn_log_loss | multiclass | 2.0663535 | 10 | 0.0743041 | pre0_mod09_post0 |
+| 40 | 32 | 27 | 3 | 0.0000000 | 0.0000000 | 0.9487551 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod10_post0 |
+| 40 | 32 | 27 | 3 | 0.0000000 | 0.0000000 | 0.9487551 | mn_log_loss | multiclass | 2.1121041 | 10 | 0.0756956 | pre0_mod10_post0 |
+| 44 | 1916 | 26 | 2 | 0.0008882 | 0.0020554 | 0.8081132 | accuracy | multiclass | 0.6423244 | 10 | 0.0267793 | pre0_mod11_post0 |
+| 44 | 1916 | 26 | 2 | 0.0008882 | 0.0020554 | 0.8081132 | mn_log_loss | multiclass | 1.1637037 | 10 | 0.0710946 | pre0_mod11_post0 |
+| 52 | 392 | 34 | 5 | 0.0000008 | 0.6011667 | 0.8717955 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod12_post0 |
+| 52 | 392 | 34 | 5 | 0.0000008 | 0.6011667 | 0.8717955 | mn_log_loss | multiclass | 2.1107267 | 10 | 0.0755587 | pre0_mod12_post0 |
+| 57 | 1243 | 22 | 8 | 0.0000001 | 0.0000041 | 0.1991896 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod13_post0 |
+| 57 | 1243 | 22 | 8 | 0.0000001 | 0.0000041 | 0.1991896 | mn_log_loss | multiclass | 2.1117330 | 10 | 0.0756685 | pre0_mod13_post0 |
+| 59 | 156 | 14 | 15 | 0.0437665 | 0.0029942 | 0.7014380 | accuracy | multiclass | 0.7001658 | 10 | 0.0211524 | pre0_mod14_post0 |
+| 59 | 156 | 14 | 15 | 0.0437665 | 0.0029942 | 0.7014380 | mn_log_loss | multiclass | 1.1867103 | 10 | 0.1221597 | pre0_mod14_post0 |
+| 65 | 282 | 7 | 10 | 0.0004847 | 10.4729690 | 0.2716258 | accuracy | multiclass | 0.3522334 | 10 | 0.0238255 | pre0_mod15_post0 |
+| 65 | 282 | 7 | 10 | 0.0004847 | 10.4729690 | 0.2716258 | mn_log_loss | multiclass | 1.7698809 | 10 | 0.0616196 | pre0_mod15_post0 |
+| 69 | 1705 | 15 | 11 | 0.0000000 | 0.0005663 | 0.8517456 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod16_post0 |
+| 69 | 1705 | 15 | 11 | 0.0000000 | 0.0005663 | 0.8517456 | mn_log_loss | multiclass | 2.1120877 | 10 | 0.0756937 | pre0_mod16_post0 |
+| 72 | 728 | 10 | 6 | 0.0000037 | 0.0000000 | 0.7646548 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod17_post0 |
+| 72 | 728 | 10 | 6 | 0.0000037 | 0.0000000 | 0.7646548 | mn_log_loss | multiclass | 2.0983019 | 10 | 0.0742409 | pre0_mod17_post0 |
+| 77 | 487 | 2 | 13 | 0.0024565 | 0.0345859 | 0.6726935 | accuracy | multiclass | 0.6755849 | 10 | 0.0222417 | pre0_mod18_post0 |
+| 77 | 487 | 2 | 13 | 0.0024565 | 0.0345859 | 0.6726935 | mn_log_loss | multiclass | 1.1190730 | 10 | 0.0768455 | pre0_mod18_post0 |
+| 81 | 1166 | 39 | 4 | 0.0000000 | 0.0000000 | 0.2837049 | accuracy | multiclass | 0.3287375 | 10 | 0.0218048 | pre0_mod19_post0 |
+| 81 | 1166 | 39 | 4 | 0.0000000 | 0.0000000 | 0.2837049 | mn_log_loss | multiclass | 2.1120411 | 10 | 0.0756911 | pre0_mod19_post0 |
 
 ### Compare tuning results across models
 
@@ -561,12 +626,12 @@ kable(comparison_summary)
 
 | model | .metric     |      mean |   std_err |
 |:------|:------------|----------:|----------:|
-| rf    | accuracy    | 0.7304693 | 0.0178050 |
-| xgb   | accuracy    | 0.6896195 | 0.0171680 |
-| lgbm  | accuracy    | 0.4605993 | 0.0239112 |
-| lgbm  | mn_log_loss | 1.6738912 | 0.0579343 |
-| xgb   | mn_log_loss | 1.0891972 | 0.0529703 |
-| rf    | mn_log_loss | 0.8289483 | 0.0480202 |
+| rf    | accuracy    | 0.6996735 | 0.0213733 |
+| xgb   | accuracy    | 0.6603909 | 0.0259818 |
+| lgbm  | accuracy    | 0.4062317 | 0.0223319 |
+| lgbm  | mn_log_loss | 1.8610853 | 0.0778596 |
+| xgb   | mn_log_loss | 1.1580241 | 0.0824980 |
+| rf    | mn_log_loss | 0.9153907 | 0.0660930 |
 
 ### Perfomance on training set
 
@@ -580,15 +645,15 @@ kable(train_metrics)
 
 | .metric     | .estimator     | .estimate | model |
 |:------------|:---------------|----------:|:------|
-| accuracy    | multiclass     | 0.9818217 | xgb   |
-| mn_log_loss | multiclass     | 0.1351351 | xgb   |
-| roc_auc     | macro_weighted | 0.9998118 | xgb   |
-| accuracy    | multiclass     | 0.9992346 | rf    |
-| mn_log_loss | multiclass     | 0.1419501 | rf    |
-| roc_auc     | macro_weighted | 0.9999990 | rf    |
-| accuracy    | multiclass     | 0.9961730 | lgbm  |
-| mn_log_loss | multiclass     | 0.0862543 | lgbm  |
-| roc_auc     | macro_weighted | 0.9999812 | lgbm  |
+| accuracy    | multiclass     | 0.9489871 | xgb   |
+| mn_log_loss | multiclass     | 0.1927957 | xgb   |
+| roc_auc     | macro_weighted | 0.9990472 | xgb   |
+| accuracy    | multiclass     | 0.9567219 | rf    |
+| mn_log_loss | multiclass     | 0.2523944 | rf    |
+| roc_auc     | macro_weighted | 0.9992982 | rf    |
+| accuracy    | multiclass     | 0.9596685 | lgbm  |
+| mn_log_loss | multiclass     | 0.0704959 | lgbm  |
+| roc_auc     | macro_weighted | 0.9995888 | lgbm  |
 
 ### performance on test set
 
@@ -606,15 +671,15 @@ kable(test_metrics)
 
 | .metric     | .estimator     | .estimate | model |
 |:------------|:---------------|----------:|:------|
-| accuracy    | multiclass     | 0.7203274 | xgb   |
-| mn_log_loss | multiclass     | 0.8823687 | xgb   |
-| roc_auc     | macro_weighted | 0.9508555 | xgb   |
-| accuracy    | multiclass     | 0.7294225 | rf    |
-| mn_log_loss | multiclass     | 0.7750683 | rf    |
-| roc_auc     | macro_weighted | 0.9626825 | rf    |
-| accuracy    | multiclass     | 0.7053206 | lgbm  |
-| mn_log_loss | multiclass     | 0.9371423 | lgbm  |
-| roc_auc     | macro_weighted | 0.9459833 | lgbm  |
+| accuracy    | multiclass     | 0.7397202 | xgb   |
+| mn_log_loss | multiclass     | 0.7280606 | xgb   |
+| roc_auc     | macro_weighted | 0.9658773 | xgb   |
+| accuracy    | multiclass     | 0.7604917 | rf    |
+| mn_log_loss | multiclass     | 0.7335488 | rf    |
+| roc_auc     | macro_weighted | 0.9721663 | rf    |
+| accuracy    | multiclass     | 0.7575244 | lgbm  |
+| mn_log_loss | multiclass     | 0.7596244 | lgbm  |
+| roc_auc     | macro_weighted | 0.9689665 | lgbm  |
 
 ### Confusion Matrices
 
@@ -631,63 +696,65 @@ for (model_name in names(results)) {
 
 |  | Quartair | Diest | Bolderberg | Sint_Huibrechts_Hern | Ursel | Asse | Wemmel | Lede | Brussel | Merelbeke | Kwatrecht | Mont_Panisel | Aalbeke | Mons_en_Pevele |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Quartair | 699 | 1 | 14 | 4 | 4 | 2 | 8 | 29 | 73 | 0 | 4 | 12 | 11 | 21 |
-| Diest | 2 | 36 | 14 | 1 | 7 | 4 | 17 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Quartair | 718 | 3 | 15 | 2 | 3 | 7 | 1 | 16 | 54 | 2 | 1 | 13 | 13 | 20 |
+| Diest | 0 | 10 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Bolderberg | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Sint_Huibrechts_Hern | 0 | 0 | 0 | 0 | 0 | 5 | 2 | 1 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Ursel | 0 | 0 | 4 | 0 | 19 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Asse | 1 | 0 | 1 | 0 | 0 | 7 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Wemmel | 1 | 0 | 0 | 0 | 0 | 5 | 36 | 9 | 6 | 0 | 0 | 0 | 0 | 0 |
-| Lede | 4 | 0 | 0 | 0 | 0 | 0 | 3 | 116 | 30 | 0 | 1 | 1 | 1 | 16 |
-| Brussel | 47 | 0 | 0 | 0 | 0 | 0 | 4 | 19 | 277 | 0 | 1 | 6 | 0 | 12 |
-| Merelbeke | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 6 | 0 | 0 | 0 | 0 |
-| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 23 | 12 | 4 | 2 |
-| Mont_Panisel | 5 | 0 | 1 | 0 | 5 | 6 | 1 | 2 | 3 | 5 | 12 | 161 | 5 | 32 |
-| Aalbeke | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 | 5 | 48 | 3 |
-| Mons_en_Pevele | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 2 | 0 | 10 | 40 | 23 | 156 |
+| Sint_Huibrechts_Hern | 7 | 0 | 0 | 10 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Ursel | 5 | 0 | 5 | 0 | 25 | 10 | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+| Asse | 0 | 0 | 2 | 0 | 6 | 28 | 6 | 0 | 0 | 0 | 0 | 3 | 0 | 0 |
+| Wemmel | 1 | 1 | 0 | 25 | 0 | 4 | 67 | 3 | 1 | 0 | 0 | 2 | 0 | 0 |
+| Lede | 6 | 5 | 1 | 1 | 0 | 0 | 26 | 178 | 44 | 0 | 2 | 4 | 1 | 13 |
+| Brussel | 57 | 0 | 0 | 0 | 0 | 0 | 1 | 24 | 303 | 0 | 0 | 1 | 0 | 12 |
+| Merelbeke | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 2 |
+| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 14 | 8 | 2 | 7 |
+| Mont_Panisel | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 5 | 5 | 8 | 20 | 180 | 9 | 20 |
+| Aalbeke | 6 | 0 | 0 | 0 | 6 | 8 | 0 | 0 | 0 | 3 | 2 | 7 | 64 | 7 |
+| Mons_en_Pevele | 2 | 0 | 0 | 0 | 0 | 1 | 3 | 7 | 13 | 2 | 0 | 14 | 6 | 148 |
 
 #### RF Confusion Matrix
 
 |  | Quartair | Diest | Bolderberg | Sint_Huibrechts_Hern | Ursel | Asse | Wemmel | Lede | Brussel | Merelbeke | Kwatrecht | Mont_Panisel | Aalbeke | Mons_en_Pevele |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Quartair | 680 | 4 | 22 | 5 | 4 | 1 | 9 | 27 | 49 | 0 | 1 | 11 | 10 | 12 |
-| Diest | 1 | 33 | 1 | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Quartair | 725 | 1 | 18 | 2 | 5 | 9 | 5 | 30 | 38 | 2 | 1 | 17 | 9 | 20 |
+| Diest | 0 | 18 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Bolderberg | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Sint_Huibrechts_Hern | 0 | 0 | 0 | 0 | 0 | 5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Ursel | 1 | 0 | 0 | 0 | 20 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Asse | 1 | 0 | 10 | 0 | 10 | 15 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 |
-| Wemmel | 1 | 0 | 1 | 0 | 0 | 6 | 40 | 19 | 1 | 0 | 0 | 0 | 0 | 0 |
-| Lede | 14 | 0 | 0 | 0 | 0 | 0 | 3 | 88 | 14 | 0 | 1 | 4 | 0 | 14 |
-| Brussel | 56 | 0 | 0 | 0 | 0 | 0 | 11 | 44 | 325 | 0 | 1 | 12 | 0 | 26 |
-| Merelbeke | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 8 | 0 | 0 | 0 | 1 |
-| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 27 | 14 | 2 | 4 |
-| Mont_Panisel | 2 | 0 | 0 | 0 | 2 | 6 | 0 | 0 | 0 | 2 | 14 | 169 | 11 | 33 |
-| Aalbeke | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 4 | 51 | 4 |
-| Mons_en_Pevele | 13 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 1 | 1 | 8 | 22 | 18 | 148 |
+| Sint_Huibrechts_Hern | 6 | 0 | 0 | 15 | 0 | 5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Ursel | 2 | 0 | 1 | 0 | 25 | 3 | 0 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
+| Asse | 0 | 0 | 4 | 0 | 4 | 28 | 3 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
+| Wemmel | 1 | 0 | 0 | 21 | 0 | 5 | 66 | 1 | 0 | 0 | 0 | 3 | 0 | 0 |
+| Lede | 4 | 0 | 0 | 0 | 0 | 0 | 23 | 165 | 44 | 0 | 1 | 1 | 0 | 5 |
+| Brussel | 53 | 0 | 0 | 0 | 0 | 0 | 1 | 24 | 327 | 0 | 1 | 3 | 0 | 18 |
+| Merelbeke | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | 0 | 0 | 0 |
+| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 13 | 6 | 3 | 12 |
+| Mont_Panisel | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 4 | 7 | 21 | 186 | 9 | 11 |
+| Aalbeke | 5 | 0 | 0 | 0 | 6 | 11 | 0 | 0 | 0 | 1 | 0 | 4 | 67 | 7 |
+| Mons_en_Pevele | 6 | 0 | 0 | 0 | 0 | 2 | 5 | 11 | 7 | 2 | 2 | 9 | 7 | 156 |
 
 #### LGBM Confusion Matrix
 
 |  | Quartair | Diest | Bolderberg | Sint_Huibrechts_Hern | Ursel | Asse | Wemmel | Lede | Brussel | Merelbeke | Kwatrecht | Mont_Panisel | Aalbeke | Mons_en_Pevele |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Quartair | 690 | 2 | 22 | 4 | 5 | 4 | 10 | 34 | 69 | 2 | 5 | 12 | 13 | 20 |
-| Diest | 1 | 35 | 8 | 1 | 7 | 4 | 15 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Quartair | 719 | 4 | 16 | 4 | 3 | 6 | 3 | 18 | 49 | 5 | 1 | 17 | 10 | 20 |
+| Diest | 0 | 13 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Bolderberg | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Sint_Huibrechts_Hern | 0 | 0 | 0 | 0 | 0 | 5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Ursel | 0 | 0 | 3 | 0 | 14 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Asse | 1 | 0 | 1 | 0 | 0 | 8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Wemmel | 1 | 0 | 0 | 0 | 0 | 4 | 36 | 10 | 4 | 0 | 0 | 0 | 0 | 1 |
-| Lede | 5 | 0 | 0 | 0 | 0 | 0 | 4 | 91 | 22 | 0 | 2 | 1 | 0 | 12 |
-| Brussel | 58 | 0 | 0 | 0 | 0 | 0 | 5 | 42 | 290 | 0 | 0 | 9 | 3 | 25 |
-| Merelbeke | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 0 |
-| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 18 | 17 | 1 | 1 |
-| Mont_Panisel | 5 | 0 | 0 | 0 | 8 | 6 | 1 | 0 | 1 | 5 | 19 | 160 | 10 | 31 |
-| Aalbeke | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 1 | 0 | 3 | 55 | 2 |
-| Mons_en_Pevele | 8 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 5 | 0 | 8 | 35 | 10 | 150 |
+| Sint_Huibrechts_Hern | 7 | 0 | 0 | 10 | 0 | 5 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Ursel | 3 | 0 | 2 | 0 | 25 | 9 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+| Asse | 0 | 0 | 4 | 0 | 6 | 29 | 5 | 0 | 0 | 0 | 0 | 2 | 0 | 0 |
+| Wemmel | 1 | 2 | 0 | 23 | 0 | 5 | 66 | 1 | 1 | 0 | 0 | 3 | 0 | 1 |
+| Lede | 6 | 0 | 1 | 1 | 0 | 0 | 24 | 182 | 37 | 0 | 3 | 1 | 1 | 13 |
+| Brussel | 58 | 0 | 0 | 0 | 0 | 0 | 2 | 21 | 319 | 0 | 0 | 2 | 0 | 13 |
+| Merelbeke | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Kwatrecht | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 20 | 7 | 2 | 11 |
+| Mont_Panisel | 3 | 0 | 0 | 0 | 0 | 2 | 0 | 4 | 6 | 9 | 15 | 183 | 6 | 15 |
+| Aalbeke | 3 | 0 | 0 | 0 | 6 | 5 | 0 | 0 | 0 | 0 | 0 | 6 | 68 | 4 |
+| Mons_en_Pevele | 5 | 0 | 0 | 0 | 0 | 2 | 4 | 8 | 8 | 0 | 0 | 11 | 8 | 152 |
 
 ### Per-class metrics
 
 - We report precision, recall, specificity, accuracy per lithostrat
   class.
+- There is a correlation between class support (number of samples) and
+  these metrics.
 
 ``` r
 # Combined per-class metrics from all models
@@ -702,55 +769,149 @@ for (model_name in names(results)) {
 
 | lithostrat_id        | support | precision |    recall | specificity |  accuracy |
 |:---------------------|--------:|----------:|----------:|------------:|----------:|
-| Quartair             |     770 | 0.7925170 | 0.9077922 |   0.8719384 | 0.8844930 |
-| Diest                |      37 | 0.4337349 | 0.9729730 |   0.9782609 | 0.9781719 |
-| Bolderberg           |      34 |        NA | 0.0000000 |   1.0000000 | 0.9845384 |
-| Sint_Huibrechts_Hern |       5 | 0.0000000 | 0.0000000 |   0.9963537 | 0.9940882 |
-| Ursel                |      36 | 0.5937500 | 0.5277778 |   0.9939898 | 0.9863574 |
-| Asse                 |      38 | 0.7000000 | 0.1842105 |   0.9986118 | 0.9845384 |
-| Wemmel               |      72 | 0.6315789 | 0.5000000 |   0.9901269 | 0.9740791 |
-| Lede                 |     181 | 0.6744186 | 0.6408840 |   0.9722498 | 0.9449750 |
-| Brussel              |     391 | 0.7568306 | 0.7084399 |   0.9507743 | 0.9076853 |
-| Merelbeke            |      12 | 0.8571429 | 0.5000000 |   0.9995428 | 0.9968167 |
-| Kwatrecht            |      52 | 0.5476190 | 0.4423077 |   0.9911504 | 0.9781719 |
-| Mont_Panisel         |     237 | 0.6764706 | 0.6793249 |   0.9607543 | 0.9304229 |
-| Aalbeke              |      92 | 0.8135593 | 0.5217391 |   0.9947793 | 0.9749886 |
-| Mons_en_Pevele       |     242 | 0.6419753 | 0.6446281 |   0.9555442 | 0.9213279 |
+| Quartair             |     806 | 0.8271889 | 0.8908189 |   0.9034127 | 0.8991098 |
+| Diest                |      19 | 1.0000000 | 0.5263158 |   1.0000000 | 0.9961848 |
+| Bolderberg           |      23 |        NA | 0.0000000 |   1.0000000 | 0.9902501 |
+| Sint_Huibrechts_Hern |      38 | 0.4545455 | 0.2631579 |   0.9948298 | 0.9830437 |
+| Ursel                |      40 | 0.5319149 | 0.6250000 |   0.9905132 | 0.9843154 |
+| Asse                 |      63 | 0.6222222 | 0.4444444 |   0.9925958 | 0.9779568 |
+| Wemmel               |     105 | 0.6442308 | 0.6380952 |   0.9835847 | 0.9682069 |
+| Lede                 |     234 | 0.6334520 | 0.7606838 |   0.9515294 | 0.9325986 |
+| Brussel              |     420 | 0.7613065 | 0.7214286 |   0.9510057 | 0.9101314 |
+| Merelbeke            |      15 | 0.0000000 | 0.0000000 |   0.9991468 | 0.9927936 |
+| Kwatrecht            |      39 | 0.4375000 | 0.3589744 |   0.9922414 | 0.9817719 |
+| Mont_Panisel         |     233 | 0.7171315 | 0.7725322 |   0.9666040 | 0.9474354 |
+| Aalbeke              |      95 | 0.6213592 | 0.6736842 |   0.9827739 | 0.9703264 |
+| Mons_en_Pevele       |     229 | 0.7551020 | 0.6462882 |   0.9774648 | 0.9453158 |
 
 #### RF Per-Class Metrics
 
 | lithostrat_id        | support | precision |    recall | specificity |  accuracy |
 |:---------------------|--------:|----------:|----------:|------------:|----------:|
-| Quartair             |     770 | 0.8143713 | 0.8831169 |   0.8915325 | 0.8885857 |
-| Diest                |      37 | 0.8461538 | 0.8918919 |   0.9972248 | 0.9954525 |
-| Bolderberg           |      34 |        NA | 0.0000000 |   1.0000000 | 0.9845384 |
-| Sint_Huibrechts_Hern |       5 | 0.0000000 | 0.0000000 |   0.9954421 | 0.9931787 |
-| Ursel                |      36 | 0.7692308 | 0.5555556 |   0.9972261 | 0.9899955 |
-| Asse                 |      38 | 0.3947368 | 0.3947368 |   0.9893568 | 0.9790814 |
-| Wemmel               |      72 | 0.5882353 | 0.5555556 |   0.9868359 | 0.9727149 |
-| Lede                 |     181 | 0.6376812 | 0.4861878 |   0.9752230 | 0.9349704 |
-| Brussel              |     391 | 0.6842105 | 0.8312020 |   0.9170354 | 0.9017735 |
-| Merelbeke            |      12 | 0.8000000 | 0.6666667 |   0.9990855 | 0.9972715 |
-| Kwatrecht            |      52 | 0.5625000 | 0.5192308 |   0.9902189 | 0.9790814 |
-| Mont_Panisel         |     237 | 0.7071130 | 0.7130802 |   0.9643221 | 0.9372442 |
-| Aalbeke              |      92 | 0.8500000 | 0.5543478 |   0.9957285 | 0.9772624 |
-| Mons_en_Pevele       |     242 | 0.6948357 | 0.6115702 |   0.9667859 | 0.9276944 |
+| Quartair             |     806 | 0.8219955 | 0.8995037 |   0.8989053 | 0.8991098 |
+| Diest                |      19 | 1.0000000 | 0.9473684 |   1.0000000 | 0.9995761 |
+| Bolderberg           |      23 |        NA | 0.0000000 |   1.0000000 | 0.9902501 |
+| Sint_Huibrechts_Hern |      38 | 0.5357143 | 0.3947368 |   0.9943990 | 0.9847393 |
+| Ursel                |      40 | 0.7575758 | 0.6250000 |   0.9965502 | 0.9902501 |
+| Asse                 |      63 | 0.6829268 | 0.4444444 |   0.9943380 | 0.9796524 |
+| Wemmel               |     105 | 0.6804124 | 0.6285714 |   0.9862467 | 0.9703264 |
+| Lede                 |     234 | 0.6790123 | 0.7051282 |   0.9632941 | 0.9376855 |
+| Brussel              |     420 | 0.7658080 | 0.7785714 |   0.9484270 | 0.9181857 |
+| Merelbeke            |      15 | 1.0000000 | 0.2000000 |   1.0000000 | 0.9949131 |
+| Kwatrecht            |      39 | 0.3823529 | 0.3333333 |   0.9909483 | 0.9800763 |
+| Mont_Panisel         |     233 | 0.7591837 | 0.7982833 |   0.9722484 | 0.9550657 |
+| Aalbeke              |      95 | 0.6633663 | 0.7052632 |   0.9849823 | 0.9737177 |
+| Mons_en_Pevele       |     229 | 0.7536232 | 0.6812227 |   0.9760563 | 0.9474354 |
 
 #### LGBM Per-Class Metrics
 
 | lithostrat_id        | support | precision |    recall | specificity |  accuracy |
 |:---------------------|--------:|----------:|----------:|------------:|----------:|
-| Quartair             |     770 | 0.7735426 | 0.8961039 |   0.8586424 | 0.8717599 |
-| Diest                |      37 | 0.4794521 | 0.9459459 |   0.9824237 | 0.9818099 |
-| Bolderberg           |      34 |        NA | 0.0000000 |   1.0000000 | 0.9845384 |
-| Sint_Huibrechts_Hern |       5 | 0.0000000 | 0.0000000 |   0.9972653 | 0.9949977 |
-| Ursel                |      36 | 0.5833333 | 0.3888889 |   0.9953768 | 0.9854479 |
-| Asse                 |      38 | 0.8000000 | 0.2105263 |   0.9990745 | 0.9854479 |
-| Wemmel               |      72 | 0.6428571 | 0.5000000 |   0.9905971 | 0.9745339 |
-| Lede                 |     181 | 0.6642336 | 0.5027624 |   0.9772052 | 0.9381537 |
-| Brussel              |     391 | 0.6712963 | 0.7416880 |   0.9214602 | 0.8894952 |
-| Merelbeke            |      12 | 0.8000000 | 0.3333333 |   0.9995428 | 0.9959072 |
-| Kwatrecht            |      52 | 0.4864865 | 0.3461538 |   0.9911504 | 0.9758981 |
-| Mont_Panisel         |     237 | 0.6504065 | 0.6751055 |   0.9561672 | 0.9258754 |
-| Aalbeke              |      92 | 0.8593750 | 0.5978261 |   0.9957285 | 0.9790814 |
-| Mons_en_Pevele       |     242 | 0.6912442 | 0.6198347 |   0.9657639 | 0.9276944 |
+| Quartair             |     806 | 0.8217143 | 0.8920596 |   0.8995493 | 0.8969903 |
+| Diest                |      19 | 1.0000000 | 0.6842105 |   1.0000000 | 0.9974565 |
+| Bolderberg           |      23 |        NA | 0.0000000 |   1.0000000 | 0.9902501 |
+| Sint_Huibrechts_Hern |      38 | 0.4347826 | 0.2631579 |   0.9943990 | 0.9826198 |
+| Ursel                |      40 | 0.6250000 | 0.6250000 |   0.9935317 | 0.9872827 |
+| Asse                 |      63 | 0.6304348 | 0.4603175 |   0.9925958 | 0.9783807 |
+| Wemmel               |     105 | 0.6407767 | 0.6285714 |   0.9835847 | 0.9677830 |
+| Lede                 |     234 | 0.6765799 | 0.7777778 |   0.9590588 | 0.9410767 |
+| Brussel              |     420 | 0.7686747 | 0.7595238 |   0.9504899 | 0.9164900 |
+| Merelbeke            |      15 | 0.5000000 | 0.0666667 |   0.9995734 | 0.9936414 |
+| Kwatrecht            |      39 | 0.5000000 | 0.5128205 |   0.9913793 | 0.9834676 |
+| Mont_Panisel         |     233 | 0.7530864 | 0.7854077 |   0.9717780 | 0.9533701 |
+| Aalbeke              |      95 | 0.7391304 | 0.7157895 |   0.9893993 | 0.9783807 |
+| Mons_en_Pevele       |     229 | 0.7676768 | 0.6637555 |   0.9784038 | 0.9478593 |
+
+``` r
+predictios_folder <- here(
+    results_folder,
+    "predictions_r_models"
+)
+if (!dir.exists(predictios_folder)) {
+    dir.create(predictios_folder)
+}
+for (model_name in names(results)) {
+  pred_dt <- results[[model_name]]$predictions
+  assign(paste0("predictions_", model_name), pred_dt)
+  fwrite(pred_dt, file = here(
+    predictios_folder,
+    paste0(
+      "predictions_",
+      model_name,
+      "_binned_true_0.6_42_multiplicative.csv"
+    )
+  ))
+}
+```
+
+``` r
+# Load the file mapping binned predictions to original CPT depth rows
+cpt_ids_path <- here("results", "cpt_ids_true_0.6_100_multiplicative.csv")
+if (!file.exists(cpt_ids_path)) {
+  stop("cpt_ids file not found at: ", cpt_ids_path)
+}
+cpt_ids <- fread(cpt_ids_path)
+
+# Define the metrics to calculate on the full dataset
+full_data_metrics <- yardstick::metric_set(accuracy, bal_accuracy, f_meas, kap)
+id_cols <- c("sondering_id", "lithostrat_id", "depth_bin")
+
+# Process each model's predictions
+all_model_metrics <- lapply(names(results), function(model_name) {
+  # Get the predictions made on the binned test data
+  pred_dt <- results[[model_name]]$predictions
+
+  # Merge predictions back to the original, unbinned CPT data
+  # This assigns the prediction for a bin to every raw measurement in that bin
+  merged_dt <- merge(pred_dt, cpt_ids, by = id_cols, all.x = TRUE)
+
+  # Ensure factor levels are consistent for both truth and prediction columns
+  merged_dt[, lithostrat_id := factor(lithostrat_id, levels = segments_oi)]
+  merged_dt[, .pred_class := factor(.pred_class, levels = segments_oi)]
+
+  # Order the data for inspection or plotting
+  if ("diepte" %in% names(merged_dt)) {
+    setorder(merged_dt, sondering_id, diepte)
+  }
+
+  # Calculate the specified metrics on the full, unbinned data
+  metrics_tbl <- full_data_metrics(merged_dt,
+    truth = lithostrat_id, estimate = .pred_class
+  )
+
+  metrics_tbl$model <- model_name # Add model name for easy grouping
+
+  return(metrics_tbl)
+})
+
+# Combine metrics from all models into a single, tidy data frame
+combined_full_metrics <- bind_rows(all_model_metrics)
+
+# Display the final comparison table
+cat("\n### Overall Performance on Full (Unbinned) CPT Data\n")
+```
+
+### Overall Performance on Full (Unbinned) CPT Data
+
+``` r
+kable(combined_full_metrics,
+  caption = "Metrics evaluated on the original, unbinned CPT measurements."
+)
+```
+
+| .metric      | .estimator | .estimate | model |
+|:-------------|:-----------|----------:|:------|
+| accuracy     | multiclass | 0.7305279 | xgb   |
+| bal_accuracy | macro      | 0.7537707 | xgb   |
+| f_meas       | macro      | 0.5813205 | xgb   |
+| kap          | multiclass | 0.6743542 | xgb   |
+| accuracy     | multiclass | 0.7583613 | rf    |
+| bal_accuracy | macro      | 0.7800811 | rf    |
+| f_meas       | macro      | 0.6490032 | rf    |
+| kap          | multiclass | 0.7069474 | rf    |
+| accuracy     | multiclass | 0.7492604 | lgbm  |
+| bal_accuracy | macro      | 0.7708402 | lgbm  |
+| f_meas       | macro      | 0.6213850 | lgbm  |
+| kap          | multiclass | 0.6963154 | lgbm  |
+
+Metrics evaluated on the original, unbinned CPT measurements.

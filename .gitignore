@@ -4,3 +4,9 @@
 *summary_stats/*
 *.pkl
 *temp*
+# Rstudio files
+*.Rproj.user
+*.Rhistory
+*.Rproj
+*.Ruserdata
+.Rproj.user
