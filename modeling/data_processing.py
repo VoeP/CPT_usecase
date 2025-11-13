@@ -28,7 +28,7 @@ EXTRACT_TREND = True
 # binning width in meters
 BIN_W = 0.6
 # random seed for reproducibility
-SET_SEED = 42
+SET_SEED = 100
 #size_tune = 10
 # QC picks thresholds
 TH_QC20 = 20
@@ -355,7 +355,7 @@ def process_cpt_data(
     # unique lithostrat per bin
     litho_dept = (
         cpt_df.loc[:, ["sondering_id", "lithostrat_id", "depth_bin"]]
-              .drop_duplicates(subset=["sondering_id", "depth_bin"])
+              .drop_duplicates(subset=["sondering_id", "depth_bin", "lithostrat_id"])
               .copy()
     )
     

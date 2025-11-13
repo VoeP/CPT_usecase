@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE,
                         warning = FALSE)
 
 SET_SEED <- 42
-size_tune <- 10 # number of hyperparameter combinations to try per model
+size_tune <- 20 # number of hyperparameter combinations to try per model
 
 ```
 
@@ -221,12 +221,14 @@ list.files(results_folder)
 
 train_dt <- fread(here(
     results_folder,
-    "train_binned_true_0.6_42_multiplicative.csv"
-))
+    "train_binned_true_0.6_100_multiplicative.csv"
+)) |>
+  select(sondering_id, depth_bin, lithostrat_id, everything())
 test_dt <- fread(here(
     results_folder,
-    "test_binned_true_0.6_42_multiplicative.csv"
-))
+    "test_binned_true_0.6_100_multiplicative.csv"
+)) |>
+  select(sondering_id, depth_bin, lithostrat_id, everything())
 train_dt[, unique(lithostrat_id)]
 # factor lithostrat_id
 # remove Onbekend
@@ -499,5 +501,80 @@ for (model_name in names(results)) {
   per_class_df <- results[[model_name]]$per_class
   print(kable(per_class_df))
 }
+```
+
+
+```{r}
+predictios_folder <- here(
+    results_folder,
+    "predictions_r_models"
+)
+if (!dir.exists(predictios_folder)) {
+    dir.create(predictios_folder)
+}
+for (model_name in names(results)) {
+  pred_dt <- results[[model_name]]$predictions
+  assign(paste0("predictions_", model_name), pred_dt)
+  fwrite(pred_dt, file = here(
+    predictios_folder,
+    paste0(
+      "predictions_",
+      model_name,
+      "_binned_true_0.6_42_multiplicative.csv"
+    )
+  ))
+}
+```
+
+
+```{r full_cpt_evaluation, results='asis'}
+# Load the file mapping binned predictions to original CPT depth rows
+cpt_ids_path <- here("results", "cpt_ids_true_0.6_100_multiplicative.csv")
+if (!file.exists(cpt_ids_path)) {
+  stop("cpt_ids file not found at: ", cpt_ids_path)
+}
+cpt_ids <- fread(cpt_ids_path)
+
+# Define the metrics to calculate on the full dataset
+full_data_metrics <- yardstick::metric_set(accuracy, bal_accuracy, f_meas, kap)
+id_cols <- c("sondering_id", "lithostrat_id", "depth_bin")
+
+# Process each model's predictions
+all_model_metrics <- lapply(names(results), function(model_name) {
+  # Get the predictions made on the binned test data
+  pred_dt <- results[[model_name]]$predictions
+
+  # Merge predictions back to the original, unbinned CPT data
+  # This assigns the prediction for a bin to every raw measurement in that bin
+  merged_dt <- merge(pred_dt, cpt_ids, by = id_cols, all.x = TRUE)
+
+  # Ensure factor levels are consistent for both truth and prediction columns
+  merged_dt[, lithostrat_id := factor(lithostrat_id, levels = segments_oi)]
+  merged_dt[, .pred_class := factor(.pred_class, levels = segments_oi)]
+
+  # Order the data for inspection or plotting
+  if ("diepte" %in% names(merged_dt)) {
+    setorder(merged_dt, sondering_id, diepte)
+  }
+
+  # Calculate the specified metrics on the full, unbinned data
+  metrics_tbl <- full_data_metrics(merged_dt,
+    truth = lithostrat_id, estimate = .pred_class
+  )
+
+  metrics_tbl$model <- model_name # Add model name for easy grouping
+
+  return(metrics_tbl)
+})
+
+# Combine metrics from all models into a single, tidy data frame
+combined_full_metrics <- bind_rows(all_model_metrics)
+
+# Display the final comparison table
+cat("\n### Overall Performance on Full (Unbinned) CPT Data\n")
+kable(combined_full_metrics,
+  caption = "Metrics evaluated on the original, unbinned CPT measurements."
+)
+
 ```
 
