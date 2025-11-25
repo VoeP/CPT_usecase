@@ -9,7 +9,8 @@ from data_module import (
     DataSet,
     extract_features,
     tile_split,
-    segments_oi, 
+    segments_oi,
+    segment_order, 
     loo_cv,
     print_loocv,
 )
@@ -343,7 +344,7 @@ feat_with_tiles, feat_train, feat_test, X_train, X_test, y_train, y_test = tile_
     feat_all,
     Gx=4,
     Gy=4,
-    train_frac=0.30,
+    train_frac=0.70,
     random_state=22,
     x_col="x",
     y_col="y",
@@ -492,7 +493,7 @@ if len(unseen_counts):
     print("Test labels unseen in TRAIN (not predictable):")
     print(unseen_counts.to_string())
 
-# per-class accuracy used for model assessment/improvement
+# per-label accuracy used for model assessment/improvement
 
 per_class_acc = (
     (feat_test.loc[mask_seen, "pred_knn"] == feat_test.loc[mask_seen, "layer_label"])
@@ -500,7 +501,7 @@ per_class_acc = (
     .rename("acc")
 )
 support = feat_test.loc[mask_seen, "layer_label"].value_counts().rename("n")
-print("Per-class (top 10 by support):")
+print("per-label (top 10 by support):")
 print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending = False).head(10).to_string())
 
 
@@ -652,7 +653,21 @@ def predict_label_hybrid(
     for lab, wi in zip(labels, w):
         weights_by_label[lab] = weights_by_label.get(lab, 0.0) + float(wi)
 
-    return max(weights_by_label.items(), key = lambda kv: kv[1])[0]
+    sorted_labels = sorted(weights_by_label.items(), key=lambda x: x[1], reverse=True)
+
+    best_label, best_weight = sorted_labels[0]
+
+    second_label, second_weight = (sorted_labels[1] 
+                                if len(sorted_labels) > 1 
+                                else (None, 0.0))
+
+    return {
+        "best_label": best_label,
+        "best_weight": best_weight,
+        "second_label": second_label,
+        "second_weight": second_weight,
+        "weights_by_label": weights_by_label
+    }
 
 # %% eval hybrid model
 def eval_hybrid_row_pred(
@@ -675,11 +690,12 @@ def eval_hybrid_row_pred(
         for tau in tau_list:
             for alpha in alpha_list:
                 for beta in beta_list:
+
                     preds = test_set.apply(
                         lambda r: predict_label_hybrid(
                             r,
                             feat_train = feat_train,
-                            z_scores_train = z_scores_train,   # DF or ndarray OK
+                            z_scores_train = z_scores_train,
                             feat_cols = feat_cols, mu = mu, sd = sd,
                             k = k, tau = tau, alpha = alpha, beta = beta,
                             x_sd = x_sd, y_sd = y_sd,
@@ -687,12 +703,19 @@ def eval_hybrid_row_pred(
                         ),
                         axis = 1
                     )
-                    acc = (preds ==  test_set["layer_label"]).mean()
+
+                    # extract best label from dict
+                    pred_labels = preds.apply(lambda d: d["best_label"])
+
+                    acc = (pred_labels == test_set["layer_label"]).mean()
+
                     rows.append(("hybrid_row_based", k, tau, alpha, beta, acc))
 
-    return (pd.DataFrame(rows, columns = ["model","k","tau","alpha","beta","acc"])
-              .sort_values("acc", ascending = False)
-              .reset_index(drop = True))
+    return (
+        pd.DataFrame(rows, columns = ["model","k","tau","alpha","beta","acc"])
+        .sort_values("acc", ascending = False)
+        .reset_index(drop=True)
+    )
 
 x_sd = float(feat_train["x"].std(ddof = 1)) or 1.0
 y_sd = float(feat_train["y"].std(ddof = 1)) or 1.0
@@ -703,8 +726,8 @@ print(eval_hybrid_row_pred(
         feat_test = feat_test,
         z_scores_train = z_scores_train,
         feat_cols = feat_cols, mu = mu, sd = sd,
-        k_list = (3,5,7,10),
-        tau_list = (1.0,2.0,3.0,5.0),
+        k_list = (2,4,6,8),
+        tau_list = (2.0,5.0,8.0,11.0),
         alpha_list = (0.0,1.0,2.0),
         beta_list = (0.0,1.0,2.0),
         x_sd = x_sd, y_sd = y_sd, 
@@ -714,13 +737,14 @@ print(eval_hybrid_row_pred(
 
 # evaluation for hybrid-row-based spatial model with k = 5, tau = 3.0
 feat_test = feat_test.copy()
+
 feat_test["pred_hybrid"] = feat_test.apply(
     lambda r: predict_label_hybrid(
         r,
         feat_train = feat_train,
         z_scores_train = z_scores_train,
         feat_cols = feat_cols, mu = mu, sd = sd,
-        k = 3, tau = 5.0,
+        k = 4, tau = 20.0,
         alpha = 1.0, beta = 1.0,
         x_sd = x_sd, y_sd = y_sd,
         certainty_weights = certainty_weight
@@ -728,10 +752,16 @@ feat_test["pred_hybrid"] = feat_test.apply(
     axis = 1
 )
 
+# unpack into readable columns
+feat_test["pred_label1"] = feat_test["pred_hybrid"].apply(lambda d: d["best_label"])
+feat_test["pred_w1"]     = feat_test["pred_hybrid"].apply(lambda d: d["best_weight"])
+feat_test["pred_label2"] = feat_test["pred_hybrid"].apply(lambda d: d["second_label"])
+feat_test["pred_w2"]     = feat_test["pred_hybrid"].apply(lambda d: d["second_weight"])
+
 # accuracy only labels present in train
 mask_seen = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
 if mask_seen.any():
-    acc = (feat_test.loc[mask_seen, "pred_hybrid"] ==  feat_test.loc[mask_seen, "layer_label"]).mean()
+    acc = (feat_test.loc[mask_seen, "pred_label1"] == feat_test.loc[mask_seen, "layer_label"]).mean()
     print(f"Hybrid kNN (k = 5, tau = 2m, alpha = 1, beta = 1) accuracy on seen-label subset: {acc:.3f}")
 else:
     print("None of the test labels are present in train.")
@@ -742,15 +772,15 @@ if len(unseen_counts):
     print("Test labels unseen in TRAIN (not predictable):")
     print(unseen_counts.to_string())
 
-# per-class accuracy used for model assessment/improvement
+# per-label accuracy used for model assessment/improvement
 
 per_class_acc = (
-    (feat_test.loc[mask_seen, "pred_hybrid"] == feat_test.loc[mask_seen, "layer_label"])
+    (feat_test.loc[mask_seen, "pred_label1"] == feat_test.loc[mask_seen, "layer_label"])
     .groupby(feat_test.loc[mask_seen, "layer_label"]).mean()
     .rename("acc")
 )
 support = feat_test.loc[mask_seen, "layer_label"].value_counts().rename("n")
-print("Per-class (top 10 by support):")
+print("per-label (top 10 by support):")
 print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending = False).head(10).to_string())
 
 #%%
@@ -759,7 +789,7 @@ loocv_k = 3
 loocv_tau = 20.0
 loocv_alpha = 1.0
 loocv_beta = 1.0
-loocv_min_thickness = 0.5  # same as above
+loocv_min_thickness = 0.5
 
 loocv_results = []
 
@@ -771,30 +801,28 @@ for t, train_df, test_df, X_tr, X_te, y_tr, y_te in loo_cv(
     if len(train_df) == 0 or len(test_df) == 0:
         continue
 
-    # work on copies to avoid touching the original
     train = train_df.copy()
     test = test_df.copy()
 
-    # add rf_mean & log features (same definitions as above)
+    # recompute rf & logs
     for df_ in (train, test):
         df_["rf_mean"] = 100.0 * (df_["fs_mean"] / (df_["qc_mean"] + eps))
         df_["log_qc_mean"] = np.log(np.maximum(df_["qc_mean"], eps))
         df_["log_rf_mean"] = np.log(np.maximum(df_["rf_mean"], eps))
 
-    # standardisation: mu/sd from TRAIN fold (optionally only “thick” layers)
+    # standardisation
     train_f = train[train["thickness"] >= loocv_min_thickness].copy()
     mu_fold = train_f[feat_cols].mean(numeric_only=True)
     sd_fold = train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
 
     z_scores_train_fold = ((train[feat_cols].fillna(mu_fold)) - mu_fold) / sd_fold
 
-    # spatial scaling from TRAIN fold
+    # spatial scales
     x_sd_fold = float(train["x"].std(ddof=1)) or 1.0
     y_sd_fold = float(train["y"].std(ddof=1)) or 1.0
 
-    # predict on TEST fold using your existing hybrid predictor
-    test = test.copy()
-    test["pred_hybrid_loocv"] = test.apply(
+    # apply hybrid model
+    preds = test.apply(
         lambda r: predict_label_hybrid(
             r,
             feat_train=train,
@@ -805,15 +833,22 @@ for t, train_df, test_df, X_tr, X_te, y_tr, y_te in loo_cv(
             x_sd=x_sd_fold, y_sd=y_sd_fold,
             certainty_weights=certainty_weight,
         ),
-        axis=1,
+        axis=1
     )
 
-    # accuracy only on labels that exist in this train fold
+    # unpack dict → separate columns
+    test["pred_label1"] = preds.apply(lambda d: d["best_label"])
+    test["pred_w1"]     = preds.apply(lambda d: d["best_weight"])
+    test["pred_label2"] = preds.apply(lambda d: d["second_label"])
+    test["pred_w2"]     = preds.apply(lambda d: d["second_weight"])
+
+    # accuracy only for labels seen in train fold
     seen_labels_fold = set(train["layer_label"])
     mask_seen_fold = test["layer_label"].isin(seen_labels_fold)
+
     if mask_seen_fold.any():
         acc_seen = (
-            test.loc[mask_seen_fold, "pred_hybrid_loocv"]
+            test.loc[mask_seen_fold, "pred_label1"]
             == test.loc[mask_seen_fold, "layer_label"]
         ).mean()
     else:
@@ -834,6 +869,218 @@ print_loocv(
     acc_col="acc_seen_labels",
     model_name="Hybrid kNN (seen labels)",
 )
+
+# %%
+
+cpt_id = "D04"
+df_cpt = feat_test[feat_test["sondeernummer"] == cpt_id].copy()
+
+# sort top→bottom using mtaw (higher = shallower)
+df_cpt = df_cpt.sort_values("mean_depth_mtaw", ascending=False)
+
+inspect_cols = df_cpt[[
+    "mean_depth_mtaw",
+    "layer_label",       # true
+    "pred_label1",
+    "pred_w1",
+    "pred_label2",
+    "pred_w2"
+]]
+
+print(inspect_cols.to_string(index=False))
+
+#%%
+
+drill_lengths = (
+    feat_all.groupby("sondeernummer")["thickness"]
+           .sum()
+           .sort_values(ascending=False)
+)
+
+longest_cpt = drill_lengths.index[0]
+chosen_cpt = longest_cpt
+print("Chosen CPT:", chosen_cpt)
+
+def get_depth_series_for_cpt(feat_df, label_column, cpt_id):
+    """
+    Creates a depth-wise dataframe for plotting.
+    Assumes label_column contains a string label (not dict).
+    """
+    sub = (
+        feat_df[feat_df["sondeernummer"] == cpt_id]
+        .sort_values("mean_depth_mtaw", ascending=False)  # shallow→deep
+        .copy()
+    )
+
+    depths = []
+    labels = []
+
+    for _, r in sub.iterrows():
+        d1 = r["start_depth_mtaw"]
+        d2 = r["end_depth_mtaw"]
+        lab = r[label_column]   # string label (true or predicted)
+        depths.extend([d1, d2])
+        labels.extend([lab, lab])
+
+    return pd.DataFrame({"depth": depths, "label": labels})
+
+def get_label_colors(all_labels):
+    unique_labs = sorted(list(set(all_labels)))
+    cmap = plt.get_cmap("tab20")
+    color_map = {lab: cmap(i % 20) for i, lab in enumerate(unique_labs)}
+    return color_map
+
+def plot_stratigraphy(depth_df, color_map, title):
+    plt.figure(figsize=(5, 8))
+    x = np.zeros(len(depth_df))  # vertical line
+
+    for lab in depth_df["label"].unique():
+        mask = depth_df["label"] == lab
+        plt.plot(
+            x[mask],
+            depth_df["depth"][mask],
+            color=color_map[lab],
+            linewidth=6,
+            label=str(lab),
+        )
+
+    plt.xlabel("Layer")
+    plt.ylabel("Depth (mTAW)")
+    plt.title(title)
+
+    # sort legend by geological order
+    handles, labels = plt.gca().get_legend_handles_labels()
+
+    order_map = {lab: i for i, lab in enumerate(segment_order)}
+    pairs = [(h, lab) for h, lab in zip(handles, labels) if lab in order_map]
+
+    pairs_sorted = sorted(pairs, key=lambda x: order_map[x[1]])
+
+    handles_sorted, labels_sorted = zip(*pairs_sorted)
+
+    plt.legend(handles_sorted, labels_sorted, bbox_to_anchor=(1.05, 1), loc="upper left")
+
+    plt.tight_layout()
+    plt.show()
+
+# 1) get true and predicted dataframe for the CPT
+true_df = get_depth_series_for_cpt(feat_test, "layer_label", chosen_cpt)
+pred_df = get_depth_series_for_cpt(feat_test, "pred_label1", chosen_cpt)
+
+# 2) build unified color map so both plots share same colours
+all_labs = list(true_df["label"].unique()) + list(pred_df["label"].unique())
+color_map = get_label_colors(all_labs)
+
+# 3) plot
+plot_stratigraphy(true_df, color_map, f"CPT {chosen_cpt} - TRUE stratigraphy")
+plot_stratigraphy(pred_df, color_map, f"CPT {chosen_cpt} - PREDICTED (Hybrid model)")
+
+#%%
+order_index = {lab: i for i, lab in enumerate(segment_order)}
+
+def postprocess_cpt(group):
+    """
+    Input: rows of ONE CPT already containing:
+        pred_label1, pred_label2, mean_depth_mtaw
+    Output: corrected labels + count of corrections
+    """
+    g = group.sort_values("mean_depth_mtaw", ascending=False).copy()
+    corrected = []
+    seen = set()
+    changes = 0
+
+    for i, row in g.iterrows():
+        best = row["pred_label1"]
+        second = row["pred_label2"]
+
+        prev = corrected[-1] if corrected else None
+        best_ok = True
+
+        # order violation?
+        if prev is not None:
+            if order_index[best] < order_index[prev]:
+                best_ok = False
+
+        # duplicate?
+        if best in seen:
+            best_ok = False
+
+        if best_ok:
+            corrected.append(best)
+            seen.add(best)
+        else:
+            # try second choice only if available and logical
+            if (
+                second is not None
+                and second not in seen
+                and order_index[second] >= (order_index[prev] if prev else -999)
+            ):
+                corrected.append(second)
+                seen.add(second)
+                changes += 1
+            else:
+                corrected.append(best)  # fallback: keep prediction
+                seen.add(best)
+                # only count as correction if the second choice was applied
+                if second is not None:
+                    changes += 1
+
+    return corrected, changes
+
+
+def apply_postprocessing(feat_df):
+    """
+    Adds pred_hybrid_corrected column and returns number of corrected rows.
+    """
+    df = feat_df.copy()
+    total_changes = 0
+
+    for cpt, group in df.groupby("sondeernummer"):
+        corrected_list, changes = postprocess_cpt(group)
+        df.loc[group.sort_values("mean_depth_mtaw", ascending=False).index,
+               "pred_hybrid_corrected"] = corrected_list
+        total_changes += changes
+
+    return df, total_changes
+
+feat_test_corrected, n_corrected = apply_postprocessing(feat_test)
+print(f"Number of corrected rows: {n_corrected}")
+
+mask_seen = feat_test_corrected["layer_label"].isin(set(feat_train["layer_label"]))
+
+final_acc = (feat_test_corrected.loc[mask_seen, "pred_hybrid_corrected"]
+             == feat_test_corrected.loc[mask_seen, "layer_label"]).mean()
+
+print(f"FINAL post-processed accuracy: {final_acc:.3f}")
+
+# per-label accuracy
+per_class = (
+    (feat_test_corrected.loc[mask_seen, "pred_hybrid_corrected"]
+     == feat_test_corrected.loc[mask_seen, "layer_label"])
+    .groupby(feat_test_corrected.loc[mask_seen, "layer_label"]).mean()
+    .rename("acc")
+)
+
+support = feat_test_corrected.loc[mask_seen, "layer_label"].value_counts().rename("n")
+
+print("\nPer-Label accuracy (hybrid model corrected):")
+print(pd.concat([per_class, support], axis=1).sort_values("n", ascending=False))
+
+#%%
+cpt_id = "D04"
+
+df_d04 = feat_test_corrected[feat_test_corrected["sondeernummer"] == cpt_id].copy()
+
+df_d04 = df_d04.sort_values("mean_depth_mtaw", ascending=False)
+
+inspect_cols = df_d04[[
+    "mean_depth_mtaw",
+    "layer_label",              # true label
+    "pred_label1",              # original model prediction
+    "pred_hybrid_corrected"     # after post-processing
+]]
+
+print(inspect_cols.to_string(index=False))
 
 # %%
 # used to assess, why in the inital model, change in alpha and beta did not change the acc

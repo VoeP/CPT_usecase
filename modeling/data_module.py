@@ -8,7 +8,7 @@ import random
 # Global defaults
 #############################
 seed = 22 #current date
-val_fraction: float = 0.8
+val_fraction: float = 0.3
 segments_oi = [  # example segments of interest (same as the ones from the company's excel sheet)
 "Quartair",
 "Diest",
@@ -28,6 +28,23 @@ segments_oi = [  # example segments of interest (same as the ones from the compa
 
 invalid_labels = {"", "none", "nan", "onbekend"}
 default_num_vars = ["qc", "fs", "rf", "qtn", "fr", "icn", "sbt", "ksbt"]
+
+segment_order = [
+    "Quartair",
+    "Diest",
+    "Bolderberg",
+    "Sint_Huibrechts_Hern",
+    "Ursel",
+    "Asse",
+    "Wemmel",
+    "Lede",
+    "Brussel",
+    "Merelbeke",
+    "Kwatrecht",
+    "Mont_Panisel",
+    "Aalbeke",
+    "Mons_en_Pevele",
+]
 
 #############################
 # Class definition
@@ -229,8 +246,8 @@ def extract_features(
         # positional
         start_depth = float(g[depth_col].min())
         end_depth = float(g[depth_col].max())
-        start_depth_mtaw = float(g[depth_mtaw_col].min())
-        end_depth_mtaw = float(g[depth_mtaw_col].max())
+        start_depth_mtaw = float(g[depth_mtaw_col].max())
+        end_depth_mtaw = float(g[depth_mtaw_col].min())
 
         row = {
             cpt_col: cpt,
