@@ -198,14 +198,17 @@ def correct_labels(labels, seq=None, min_length=20):
 
 
 
-dset = data.DataSet(paths_cpt.PATH_TO_PARQUET, segments_oi, 0.05)
+input = data.DataSet("dashboard/input/input.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
+closest = data.DataSet("dashboard/input/closest.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
 
-train, validation = dset.get_preprocessed(features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
-validation.dropna(inplace=True)
+input.drop(["Unnamed: 0"], axis=1, inplace=True)
+closest.drop(["Unnamed: 0"], axis=1, inplace=True)
+#train, validation = dset.get_preprocessed(features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
+#validation.dropna(inplace=True)
 
 #we take a known sample for dashboard drafting
-rand = list(set(validation.sondering_id))[0]
-one_samp = validation[validation["sondering_id"]==rand]
+#rand = list(set(validation.sondering_id))[0]
+#one_samp = validation[validation["sondering_id"]==rand]
 
 ## we load the finished model here (change later, keep used libraries at imports)
 with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
@@ -216,28 +219,28 @@ with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
 #       'qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
 
 
-copy_samp = one_samp.copy()
+copy_samp = input.copy()
 
-one_samp.drop(["sondering_id",	"index",	"pkey_sondering",	"sondeernummer",
+input.drop(["sondering_id",	"index",	"pkey_sondering",	"sondeernummer",
               	"x", "y", "start_sondering_mtaw",	
                 "diepte_sondering_tot", "lithostrat_id"], axis=1, inplace=True)
 
-predictions = exported_model.predict(one_samp)
+predictions = exported_model.predict(input)
 
 # we create some predictions
-one_samp["predictions"] = predictions
+input["predictions"] = predictions
 
-one_samp["postprocessed"] = correct_labels(predictions)
+input["postprocessed"] = correct_labels(predictions)
 
 
 
-signal = one_samp.icn.values
-index = one_samp.index
+signal = input.icn.values
+index = input.index
 trend = np.linspace(0, 10, len(index))
 signal = trend + np.random.normal(0, 0.5, len(index))
 #random_noise = np.random.normal(size = one_samp.shape[0])
 random_noise=signal
-print(random_noise, len(random_noise), one_samp.shape)
+print(random_noise, len(random_noise), input.shape)
 #one_samp["noise"] = pd.Series(random_noise)
 #one_samp["noise_category"] = pd.cut(
 #    one_samp["noise"],
@@ -250,25 +253,25 @@ selected_category = st.sidebar.selectbox("Select category", categories)
 
 print(copy_samp[["x","y"]])
 
-train["x_dist"] = train["x"].astype(float) - copy_samp["x"].astype(float).values[0]
+#train["x_dist"] = train["x"].astype(float) - copy_samp["x"].astype(float).values[0]
 
-train["y_dist"] = train["y"].astype(float) - copy_samp["y"].astype(float).values[0]
+#train["y_dist"] = train["y"].astype(float) - copy_samp["y"].astype(float).values[0]
 
-train["dist"] = np.sqrt(train["x_dist"]**2 + train["y_dist"]**2)
-print(train[["x_dist", "y_dist"]])
-filtered = train.dropna()
+#train["dist"] = np.sqrt(train["x_dist"]**2 + train["y_dist"]**2)
+#print(train[["x_dist", "y_dist"]])
+#filtered = train.dropna()
 #print(filtered)
 
-min_sample = filtered[filtered["dist"] == filtered["dist"].min()].sondering_id.unique()[0]
-min_sample = filtered[filtered["sondering_id"]==min_sample]
+#min_sample = filtered[filtered["dist"] == filtered["dist"].min()].sondering_id.unique()[0]
+#min_sample = filtered[filtered["sondering_id"]==min_sample]
 
 
-one_samp["smoothed"], kdes = smooth_one_samp(predictions, one_samp.diepte_mtaw)
+input["smoothed"], kdes = smooth_one_samp(predictions, input.diepte_mtaw)
 
 
 min_samp_gdf = gpd.GeoDataFrame(
-    min_sample,
-    geometry=gpd.points_from_xy(min_sample["x"], min_sample["y"]),
+    closest,
+    geometry=gpd.points_from_xy(closest["x"], closest["y"]),
     crs="EPSG:31370"
 )
 min_samp_gdf = min_samp_gdf.to_crs("EPSG:4326")
@@ -291,7 +294,7 @@ if selected_category == "Predicted segments":
     #fig = go.Figure()
 
     fig = px.line(
-        one_samp,
+        input,
         x="diepte",
         y="icn",
         color="postprocessed",
@@ -310,11 +313,11 @@ elif selected_category == "Segment uncertainty":
     #cmap = plt.get_cmap("tab10", len(all_classes))
 
     classes = np.unique(predictions)
-    depth_grid = np.linspace(one_samp.diepte_mtaw.min(), one_samp.diepte_mtaw.max(), len(one_samp))
+    depth_grid = np.linspace(input.diepte_mtaw.min(), input.diepte_mtaw.max(), len(input))
     density_matrix = np.zeros((len(classes), len(depth_grid)))
 
     for i, cls in enumerate(classes):
-        cls_depths = one_samp.loc[one_samp['predictions'] == cls, 'diepte_mtaw']
+        cls_depths = input.loc[input['predictions'] == cls, 'diepte_mtaw']
         if len(cls_depths) > 1:
             kde = kdes[cls]
             density_matrix[i] = kde(depth_grid)
@@ -339,8 +342,8 @@ elif selected_category == "Segment uncertainty":
 
     # Original rpedictions
     fig.add_trace(go.Scatter(
-        x=one_samp.diepte_mtaw,
-        y=np.full(len(one_samp), -5),
+        x=input.diepte_mtaw,
+        y=np.full(len(input), -5),
         mode='markers',
         marker=dict(
             color=[class_to_num[val] for val in predictions[::-1]],
@@ -353,11 +356,11 @@ elif selected_category == "Segment uncertainty":
 
     # Smoothed labels
     fig.add_trace(go.Scatter(
-        x=one_samp.diepte_mtaw,
-        y=np.full(len(one_samp), -2.5),
+        x=input.diepte_mtaw,
+        y=np.full(len(input), -2.5),
         mode='markers',
         marker=dict(
-            color=[class_to_num[val] for val in one_samp["smoothed"][::-1]],
+            color=[class_to_num[val] for val in input["smoothed"][::-1]],
             #colorscale='T10',
             symbol='x',
             size=8
@@ -388,7 +391,7 @@ elif selected_category == "Nearest segment":
     #fig = go.Figure()
 
     fig = px.line(
-        min_sample,
+        closest,
         x="diepte",
         y="icn",
         color="lithostrat_id",
