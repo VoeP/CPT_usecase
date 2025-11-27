@@ -438,6 +438,150 @@ def process_cpt_data(
     }
 
 
+def process_test_train(
+    cpt_df: pd.DataFrame,
+    sondering_ids: list,
+    do_extract_trend: bool = EXTRACT_TREND,
+    bin_w: float = BIN_W,
+    trend_type: str = "additive"
+) -> pd.DataFrame:
+    """
+    Process a subset of CPT data (e.g., train or test set) defined by sondering_ids.
+    Performs binning, optional trend extraction, feature aggregation, and QC spike calculation.
+    
+    Args:
+        cpt_df: The complete or subset dataframe containing CPT measurements.
+        sondering_ids: List of sondering_ids to process.
+        do_extract_trend: Whether to perform trend extraction.
+        bin_w: Bin width in meters.
+        trend_type: Type of trend decomposition ('additive' or 'multiplicative').
+        
+    Returns:
+        pd.DataFrame: The processed and binned features for the given IDs.
+    """
+    # Filter data based on provided IDs
+    df = cpt_df[cpt_df["sondering_id"].isin(sondering_ids)].copy()
+    
+    if df.empty:
+        print("Warning: No data found for the provided sondering_ids.")
+        return pd.DataFrame()
+
+    # order + bin
+    id_col = "sondering_id"
+    depth_col = "diepte"
+    df = df.sort_values([id_col, depth_col]).copy()
+    max_depth = float(df[depth_col].max())
+    
+    # create bins
+    bins = np.arange(0, max_depth + bin_w, bin_w) if bin_w > 0 else np.array([0, max_depth or 1.0])
+    if len(bins) < 2:
+        bins = np.array([0, max_depth + (bin_w if bin_w > 0 else 1.0)])
+    
+    df["depth_bin"] = pd.cut(df["diepte"], bins=bins, include_lowest=True, ordered=True)
+    
+    # create raw QC column if it exists in source, else assume 'qc' is raw
+    if "qc" in df.columns:
+        df["QC_raw"] = df["qc"]
+
+    # optional trend extraction
+    if do_extract_trend:
+        feat_cols_trend = [c for c in ["qc", "fs", "qtn"] if c in df.columns]
+        if feat_cols_trend:
+            # Sort again just to be safe for rolling/decomposition
+            df = df.sort_values(["sondering_id", "diepte"]).copy()
+
+            def _trend_and_fill(group: pd.DataFrame) -> pd.DataFrame:
+                # Ensure the group identifier column exists
+                if "sondering_id" not in group.columns:
+                    group = group.copy()
+                    group["sondering_id"] = group.name
+
+                freq = freq_from_depth(group["diepte"].values)
+                for col in feat_cols_trend:
+                    vals = extract_trend(group[col].values, freq=freq, decomp_type=trend_type)
+                    v = pd.Series(pd.to_numeric(vals, errors="coerce"))
+                    v = v.replace([np.inf, -np.inf], np.nan)
+                    v = v.ffill().bfill().bfill().to_numpy()
+                    group[col] = v
+                return group
+
+            df = (df.groupby("sondering_id", group_keys=False, observed=False)
+                           .apply(_trend_and_fill))
+
+    # Stats for binning + whole
+    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte", "diepte_mtaw"] if c in df.columns]
+    geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in df.columns]
+
+    # np stats with na handling
+    def mean_na(x): return float(np.nanmean(x))
+    def sd_na(x): return float(np.nanstd(x, ddof=1))
+    def iqr_na(x): return float(np.nanpercentile(x, 75) - np.nanpercentile(x, 25))
+    def median_na(x): return float(np.nanmedian(x))
+    def mad_na(x):
+        med = np.nanmedian(x)
+        return float(np.nanmedian(np.abs(x - med)))
+    def q10(x): return float(np.nanpercentile(x, 10))
+    def q50(x): return float(np.nanpercentile(x, 50))
+    def q90(x): return float(np.nanpercentile(x, 90))
+    def cv(x):
+        m = np.nanmean(x)
+        s = np.nanstd(x, ddof=1)
+        return float(np.nan) if (not np.isfinite(m) or m == 0) else float(s / m)
+
+    stats = {
+        "sd": sd_na, "mean": mean_na,
+        "iqr": iqr_na, "median": median_na, "mad": mad_na,
+        "q10": q10, "q50": q50, "q90": q90, "cv": cv
+    }
+
+    # unique lithostrat per bin
+    litho_dept = (
+        df.loc[:, ["sondering_id", "lithostrat_id", "depth_bin"]]
+              .drop_duplicates(subset=["sondering_id", "depth_bin", "lithostrat_id"])
+              .copy()
+    )
+
+    # aggregations
+    summaries_bin = agg_features(df, feat_cols, [id_col, "depth_bin"], stats) if feat_cols else pd.DataFrame()
+    summaries_whole = agg_features(df, geog_cols, [id_col], stats, suffix="_whole") if geog_cols else pd.DataFrame()
+
+    # merge
+    if summaries_bin.empty and not summaries_whole.empty:
+        dt = summaries_whole.copy()
+    elif summaries_whole.empty and not summaries_bin.empty:
+        dt = summaries_bin.copy()
+    else:
+        dt = summaries_bin.merge(summaries_whole, on=id_col, how="left")
+
+    dt = dt.merge(
+        litho_dept,
+        left_on=[id_col, "depth_bin"],
+        right_on=["sondering_id", "depth_bin"],
+        how="left"
+    )
+    
+    # remove missing lithostrat_id
+    dt = dt[~dt["lithostrat_id"].isna()].copy()
+
+    # QC spikes
+    if "QC_raw" in df.columns and not df["QC_raw"].isna().all():
+        qc_ok = df.dropna(subset=["QC_raw"]).copy()
+        qc_spikes = (
+            qc_ok.groupby([id_col, "depth_bin"], dropna=False, observed=False)["QC_raw"]
+                 .agg(
+                     qc_frac_gt20=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC20),
+                     qc_frac_gt40=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC40),
+                     qc_count_gt20=lambda s: np.sum(s.to_numpy(dtype=float) > TH_QC20),
+                     qc_count_gt40=lambda s: np.sum(s.to_numpy(dtype=float) > TH_QC40),
+                     qc_p99=lambda s: float(np.nanpercentile(s.to_numpy(dtype=float), 99)),
+                 )
+                 .reset_index()
+        )
+        dt = dt.merge(qc_spikes, on=[id_col, "depth_bin"], how="left")
+
+    return dt
+
+
 def main():
     """
     Command-line entry point with argument parsing.
