@@ -10,6 +10,31 @@ dashbord/ contains streamlit dashboard scripts
 You need to add your aboslute paths to the paths_cpt_file for it to run.
 You need to define PATH_TO_PARQUET = “” and PATH_TO_MODEL =““. The idea is that we can change this logic later to use environment variables instead to run this in different environments. For the dashboard to work, you need to also create the pickle of the model by running the EDA.ipynb (or whatever other method).
 
+This README explains:
+
+- how the data is processed (binning pipeline),
+- how to run the preprocessing scripts,
+- how to train / evaluate models,
+- how to run the dashboard.
+
+## Repository structure
+
+├─ dashboard/            # Streamlit dashboard files
+├─ Documentation/        # Reports, slides, background docs
+├─ exploratory/          # EDA notebooks and quick experiments
+├─ modeling/             # Reusable scripts + modelling notebooks
+├─ results/              # Processed data, splits, model outputs
+├─ README.md             # This file
+├─ README.Rmd            # RMarkdown source for README.html
+├─ README.html           # Rendered README (for sharing)
+├─ requirements.txt      # Python dependencies
+└─ run_dashboard.bat     # Helper script to start the dashboard on Windows
+
+## Setup
+Create a virtual environment and install dependencies:
+pip install -r requirements.txt
+The path configuration for CPT data is in path_cpt.py (This can be replaced by environment variables)
+
 ## Data Processing
 
 ### The binning method
