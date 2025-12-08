@@ -157,7 +157,7 @@ def render_mpl_image(plot_df, ids, use_predictions=False):
     return fig_to_base64(fig)
 
 # App Layout 
-app = dash.Dash(__name__, external_stylesheets=['https://codepen.io/chriddyp/pen/bWLwgP.css'])
+app = dash.Dash(__name__, external_stylesheets=["assets/vito.css"])
 
 app.layout = html.Div([
     html.H1("CPT Lithostratigraphy Prediction Dashboard", style={'textAlign': 'center'}),
