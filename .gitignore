@@ -2,7 +2,6 @@
 *paths_cpt.py
 *__pycache*
 *summary_stats/*
-*.pkl
 *temp*
 # Rstudio files
 *.Rproj.user
@@ -10,3 +9,4 @@
 *.Rproj
 *.Ruserdata
 .Rproj.user
+y
