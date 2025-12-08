@@ -15,12 +15,12 @@ head(results_df)
     ## # A tibble: 6 × 21
     ##   sondering_id index pkey_sondering                  sondeernummer      x      y
     ##          <dbl> <dbl> <chr>                           <chr>          <dbl>  <dbl>
-    ## 1          315  2832 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
-    ## 2          315  2833 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
-    ## 3          315  2834 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
-    ## 4          315  2835 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
-    ## 5          315  2836 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
-    ## 6          315  2837 https://www.dov.vlaanderen.be/… GEO-97/127-S3 1.53e5 1.82e5
+    ## 1          314  2593 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
+    ## 2          314  2594 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
+    ## 3          314  2595 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
+    ## 4          314  2596 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
+    ## 5          314  2597 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
+    ## 6          314  2598 https://www.dov.vlaanderen.be/… GEO-97/127-S2 1.53e5 1.82e5
     ## # ℹ 15 more variables: start_sondering_mtaw <dbl>, diepte_sondering_tot <dbl>,
     ## #   diepte <dbl>, diepte_mtaw <dbl>, qc <dbl>, fs <dbl>, qtn <dbl>, rf <dbl>,
     ## #   fr <dbl>, icn <dbl>, sbt <dbl>, ksbt <dbl>, lithostrat_id <chr>,
@@ -124,21 +124,111 @@ plot_cpt_series <- function(data,
 ## Generate Comparison Plots
 
 ``` r
-# 1. Select 4 random sondering_ids
-set.seed(42) # Ensure reproducibility
-valid_ids <- unique(results_df$sondering_id)
-selected_ids <- sample(valid_ids, min(4, length(valid_ids)))
+# A more advanced function to plot layers as shaded rectangles
+plot_cpt_with_layers <- function(data, 
+                                 value_col, 
+                                 class_col, 
+                                 title) {
 
-print(paste("Selected IDs:", paste(selected_ids, collapse = ", ")))
+  # 1. Calculate layer boundaries
+  layer_boundaries <- data %>%
+    group_by(!!rlang::ensym(class_col)) %>%
+    summarise(
+      min_depth = min(diepte),
+      max_depth = max(diepte),
+      .groups = 'drop'
+    ) %>%
+    # Add a mid-point for text labels
+    mutate(mid_depth = (min_depth + max_depth) / 2)
+
+  # 2. Create the plot with depth on the x-axis initially
+  p <- ggplot(data) +
+    # Add shaded rectangles for each layer
+    geom_rect(
+      data = layer_boundaries,
+      aes(
+        ymin = -Inf,
+        ymax = Inf,
+        xmin = min_depth,
+        xmax = max_depth,
+        fill = !!rlang::ensym(class_col)
+      ),
+      alpha = 0.1
+    ) +
+    # Add text labels in the middle of each layer
+    # geom_text(
+    #   data = layer_boundaries,
+    #   aes(y = 0, x = mid_depth, label = !!rlang::ensym(class_col)),
+    #   hjust = 0,
+    #   size = 3.5,
+    #   fontface = "bold"
+    # ) +
+    # Overlay the CPT data line
+    geom_line(aes(y = !!rlang::ensym(value_col), x = diepte), color = "black", size = .2) +
+    
+    # Theming and labels
+    scale_x_reverse() + # Reverse depth axis
+    coord_flip() +      # Flip coordinates to make depth the vertical axis
+    labs(
+      title = title,
+      x = "Depth (m)",
+      y = toupper(value_col)
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none", # Hide legend as labels are on the plot
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+    )
+  
+  return(p)
+}
+
+# --- Generate and arrange plots for multiple CPTs ---
+
+# 1. Select 4 random CPTs to plot
+set.seed(42) # for reproducibility
+sampled_ids <- sample(unique(results_df$sondering_id), 4)
+
+# 2. Loop through IDs, create plot pairs, and add them to a list
+plot_list <- list()
+for (id in sampled_ids) {
+  
+  # Filter data for the current CPT
+  single_cpt_data <- results_df %>% filter(sondering_id == id)
+  
+  # Create the "Ground Truth" plot
+  plot_true <- plot_cpt_with_layers(
+    data = single_cpt_data,
+    value_col = "qc",
+    class_col = "lithostrat_id",
+    title = paste("Sondering", id, "- Truth")
+  )
+  
+  # Create the "Prediction" plot
+  plot_pred <- plot_cpt_with_layers(
+    data = single_cpt_data,
+    value_col = "qc",
+    class_col = "pred_class",
+    title = paste("Sondering", id, "- Prediction")
+  )
+  
+  # Add the pair of plots to the list
+  plot_list <- c(plot_list, list(plot_true, plot_pred))
+}
+
+# 3. Arrange all plots in a grid
+grid.arrange(grobs = plot_list, ncol = 2)
 ```
 
-    ## [1] "Selected IDs: 4775, 13010, 3677, 13203"
+![](Comparing_results_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+
+# 2. Generate individual plots
 
 ``` r
-# 2. Generate individual plots
 plot_list <- list()
 
-for (id in selected_ids) {
+for (id in sampled_ids) {
   # Filter data for the current ID
   id_data <- results_df %>% filter(sondering_id == id)
   
@@ -161,4 +251,4 @@ for (id in selected_ids) {
 grid.arrange(grobs = plot_list, ncol = 2)
 ```
 
-![](Comparing_results_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+![](Comparing_results_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->

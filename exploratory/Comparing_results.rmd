@@ -120,18 +120,110 @@ plot_cpt_series <- function(data,
 
 ## Generate Comparison Plots
 
-```{r, fig.height=12, fig.width=14}
-# 1. Select 4 random sondering_ids
-set.seed(42) # Ensure reproducibility
-valid_ids <- unique(results_df$sondering_id)
-selected_ids <- sample(valid_ids, min(4, length(valid_ids)))
+```{r, fig.height=8, fig.width=12}
+# A more advanced function to plot layers as shaded rectangles
+plot_cpt_with_layers <- function(data, 
+                                 value_col, 
+                                 class_col, 
+                                 title) {
 
-print(paste("Selected IDs:", paste(selected_ids, collapse = ", ")))
+  # 1. Calculate layer boundaries
+  layer_boundaries <- data %>%
+    group_by(!!rlang::ensym(class_col)) %>%
+    summarise(
+      min_depth = min(diepte),
+      max_depth = max(diepte),
+      .groups = 'drop'
+    ) %>%
+    # Add a mid-point for text labels
+    mutate(mid_depth = (min_depth + max_depth) / 2)
+
+  # 2. Create the plot with depth on the x-axis initially
+  p <- ggplot(data) +
+    # Add shaded rectangles for each layer
+    geom_rect(
+      data = layer_boundaries,
+      aes(
+        ymin = -Inf,
+        ymax = Inf,
+        xmin = min_depth,
+        xmax = max_depth,
+        fill = !!rlang::ensym(class_col)
+      ),
+      alpha = 0.1
+    ) +
+    # Add text labels in the middle of each layer
+    # geom_text(
+    #   data = layer_boundaries,
+    #   aes(y = 0, x = mid_depth, label = !!rlang::ensym(class_col)),
+    #   hjust = 0,
+    #   size = 3.5,
+    #   fontface = "bold"
+    # ) +
+    # Overlay the CPT data line
+    geom_line(aes(y = !!rlang::ensym(value_col), x = diepte), color = "black", size = .2) +
+    
+    # Theming and labels
+    scale_x_reverse() + # Reverse depth axis
+    coord_flip() +      # Flip coordinates to make depth the vertical axis
+    labs(
+      title = title,
+      x = "Depth (m)",
+      y = toupper(value_col)
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none", # Hide legend as labels are on the plot
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+    )
+  
+  return(p)
+}
+
+# --- Generate and arrange plots for multiple CPTs ---
+
+# 1. Select 4 random CPTs to plot
+set.seed(42) # for reproducibility
+sampled_ids <- sample(unique(results_df$sondering_id), 4)
+
+# 2. Loop through IDs, create plot pairs, and add them to a list
+plot_list <- list()
+for (id in sampled_ids) {
+  
+  # Filter data for the current CPT
+  single_cpt_data <- results_df %>% filter(sondering_id == id)
+  
+  # Create the "Ground Truth" plot
+  plot_true <- plot_cpt_with_layers(
+    data = single_cpt_data,
+    value_col = "qc",
+    class_col = "lithostrat_id",
+    title = paste("Sondering", id, "- Truth")
+  )
+  
+  # Create the "Prediction" plot
+  plot_pred <- plot_cpt_with_layers(
+    data = single_cpt_data,
+    value_col = "qc",
+    class_col = "pred_class",
+    title = paste("Sondering", id, "- Prediction")
+  )
+  
+  # Add the pair of plots to the list
+  plot_list <- c(plot_list, list(plot_true, plot_pred))
+}
+
+# 3. Arrange all plots in a grid
+grid.arrange(grobs = plot_list, ncol = 2)
+```
+
 
 # 2. Generate individual plots
+```{r, fig.height=10, fig.width=12}
 plot_list <- list()
 
-for (id in selected_ids) {
+for (id in sampled_ids) {
   # Filter data for the current ID
   id_data <- results_df %>% filter(sondering_id == id)
   
