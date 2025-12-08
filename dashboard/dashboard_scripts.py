@@ -201,8 +201,11 @@ def correct_labels(labels, seq=None, min_length=20):
 input = data.DataSet("dashboard/input/input.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
 closest = data.DataSet("dashboard/input/closest.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
 
-input.drop(["Unnamed: 0"], axis=1, inplace=True)
-closest.drop(["Unnamed: 0"], axis=1, inplace=True)
+try:
+    input.drop(["Unnamed: 0"], axis=1, inplace=True)
+    closest.drop(["Unnamed: 0"], axis=1, inplace=True)
+except:
+    pass
 #train, validation = dset.get_preprocessed(features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
 #validation.dropna(inplace=True)
 
@@ -248,7 +251,7 @@ print(random_noise, len(random_noise), input.shape)
 #    labels=[f"Cat {i}" for i in range(1, 6)])
 
 
-categories = ["Predicted segments","Nearest segment","Segment uncertainty",]
+categories = ["Predicted segments","Segment correction","Segment uncertainty",]
 selected_category = st.sidebar.selectbox("Select category", categories)
 
 print(copy_samp[["x","y"]])
@@ -423,3 +426,54 @@ elif selected_category == "Nearest segment":
 
     st_folium(m, width=700, height=500)
 
+
+
+elif selected_category == "Segment correction": 
+    col_main, col_right = st.columns([3, 2])
+
+
+
+    with col_main:
+        fig_main = px.line(
+            input,
+            x="icn",
+            y="diepte",
+            height = 1200
+        )
+        st.plotly_chart(fig_main, key="raw", use_container_width=True)
+
+
+
+    with col_right:
+        fig_postprocessed = px.line(
+            input,
+            x="icn",
+            y="diepte",
+            color="postprocessed",
+            title="Predicted segments",
+            height = 600
+        )
+        cols = st.columns(2)
+        with cols[0]:
+            st.plotly_chart(fig_postprocessed, use_container_width=True)
+
+        drilling_ids = closest["sondering_id"].unique()[:3]
+        plot_idx = 0
+
+        for i, drilling_id in enumerate(drilling_ids):
+            df = closest[closest["sondering_id"] == drilling_id]
+            fig_side = px.line(
+                df,
+                x="icn",
+                y="diepte",
+                color="lithostrat_id",
+                title=f"Drilling {drilling_id}",
+                height = 600
+            )
+
+            col_idx = (i + 1) % 2
+            row_idx = (i + 1) // 2
+            if row_idx >= len(cols):
+                cols = st.columns(2)
+            with cols[col_idx]:
+                st.plotly_chart(fig_side, use_container_width=True)

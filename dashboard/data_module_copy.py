@@ -53,7 +53,7 @@ class DataSet():
         self.validation = self.known_data[~self.known_data.sondering_id.isin(drillings)]
 
 
-    def preprocess(self, X, points=5, features=[]):
+    def preprocess(self, X, points=5, features=[], model_id=1):
         """Preprocessing script, currently incldes:
         - sliding window over selected features
         
@@ -63,42 +63,39 @@ class DataSet():
 
         Run on train/test/validation sets if desired
         """
-        id_column = "sondering_id"
-        new_cols= ["mean", "slope"]
-        processed_subframes = []
-        ids_to_process = X[id_column].unique()
-        #features = [c for c in X.columns if c != id_column]
+        if model_id == 1:
+            id_column = "sondering_id"
+            processed_subframes = []
+            ids_to_process = X[id_column].unique()
 
-        for id in ids_to_process:
-            subdf = X[X[id_column] == id].copy()
-            print(subdf)
-            n_rows = len(subdf)
-            features_list = []
-            
-            for start in range(0, n_rows - points + 1):
-                window = subdf.iloc[start:start + points]
-                feats = window.iloc[-1].to_dict()
-                feats[id_column] = id
-                
-                for col in features:
-                    col_vals = window[col].values
-                    feats[f"{col}_mean"] = col_vals.mean()
-                    feats[f"{col}_slope"] = np.polyfit(np.arange(points), col_vals, 1)[0]
-                
-                features_list.append(feats)
+            for id_val in ids_to_process:
+                subdf = X[X[id_column] == id_val].copy()
+                n_rows = len(subdf)
+                features_list = []
 
-            df_feats = pd.DataFrame(features_list)
-            print(df_feats)
-            if len(df_feats) < n_rows:
-                last_feats = df_feats.iloc[-1].copy()
-                tail = pd.DataFrame([last_feats] * (n_rows - len(df_feats)))
-                #try:
-                df_feats = pd.concat([df_feats, tail], ignore_index=True)
+                for start in range(0, n_rows - points + 1):
+                    window = subdf.iloc[start:start + points]
+                    feats = window.iloc[-1].to_dict()
+                    feats[id_column] = id_val
 
-            
-            processed_subframes.append(pd.DataFrame(features_list))
-        
-        return pd.concat(processed_subframes, ignore_index=True)
+                    for col in features:
+                        col_vals = window[col].values
+                        feats[f"{col}_mean"] = col_vals.mean()
+                        feats[f"{col}_slope"] = np.polyfit(np.arange(points), col_vals, 1)[0]
+
+                    features_list.append(feats)
+
+                df_feats = pd.DataFrame(features_list)
+
+                if len(df_feats) < n_rows:
+                    last_feats = df_feats.iloc[-1].copy()
+                    tail = pd.DataFrame([last_feats] * (n_rows - len(df_feats)))
+                    df_feats = pd.concat([df_feats, tail], ignore_index=True)
+
+                processed_subframes.append(df_feats)
+
+            return pd.concat(processed_subframes, ignore_index=True)
+
 
     
     def get_preprocessed(self, split=True, features = []):
@@ -107,4 +104,4 @@ class DataSet():
                 self.preprocess(self.validation, features = features)
         else:
             #return 1, self.preprocess(self.known_data), self.known_data, self.raw_df
-            return self.preprocess(self.known_data, features=features)
+            return self.preprocess(self.raw_df, features=features)
