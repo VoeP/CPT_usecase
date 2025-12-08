@@ -1,173 +1,74 @@
-# %%
-import pandas as pd
+from pathlib import Path
+import json
 import numpy as np
-import matplotlib.pyplot as plt
-import geopandas as gpd
-import contextily as cx
+import pandas as pd
+from sklearn.feature_selection import f_classif
+from sklearn.neighbors import NearestNeighbors
 
 from data_module import (
     DataSet,
     extract_features,
     tile_split,
     segments_oi,
-    segment_order, 
+    segment_order,
     loo_cv,
     print_loocv,
 )
 
-PARQUET_PATH = "C:/Users/joelle/Documents/Master/ProjectDS/vw_cpt_brussels_params_completeset_20250318_remapped.parquet"
+# =============================================================================
+# PATHS AND BASIC SETTINGS
+# =============================================================================
+
+try:
+    THIS_FILE = Path(__file__).resolve()
+except NameError:
+    THIS_FILE = Path.cwd()  # note to self think about this: adjust if running in notebook
+BASE_DIR = THIS_FILE.parent.parent   # repo root
+
+DATA_DIR = BASE_DIR / "data"
+RESULTS_DIR = BASE_DIR / "results"
+
+PARQUET_PATH = DATA_DIR / "vw_cpt_brussels_params_completeset_20250318_remapped.parquet"
+SPLIT_JSON_PATH = RESULTS_DIR / "split_res.json"
+
 LABEL = "lithostrat_id"
 
+# =============================================================================
+# GLOBAL SWITCHES
+# =============================================================================
+
+# If True: run feature discriminability, feature selection and LOOCV tuning.
+# If False: skip tuning and use manually specified features + hyperparameters.
+MODEL_SELECTION_MODE = False  # <-- set to False for final model only.
+
+# These are only used when MODEL_SELECTION_MODE is False.
+# They were filled with the results from the previous run.
+FINAL_FEAT_COLS = [
+    "icn_sq_mean", "log_qc_mean", "rf_top3_mean_depth_rel", "qtn_top3_mean_depth_rel", "rf_mean"
+]
+
+FINAL_MODEL_TYPE = "row"
+
+FINAL_PARAMS = {
+    # based on best LOOCV config but note: alpha (spatial weight) has more influence than beta (feature weight)
+    "k": 3,
+    "tau": 20.0,
+    "alpha": 2.5,
+    "beta": 2.0,
+}
+
+# =============================================================================
+# 1. LOAD DATA
+# =============================================================================
+
 ds = DataSet(
-    path_to_parquet = PARQUET_PATH,
-    segments_of_interest = segments_oi
+    path_to_parquet=PARQUET_PATH,
+    segments_of_interest=segments_oi,
 )
 
-# this contains the link which can't be accessed by our team
 if "pkey_sondering" in ds.raw_df.columns:
     ds.raw_df = ds.raw_df.drop(columns=["pkey_sondering"])
 
-#print(df.shape)
-#print(df.info())
-#print(df.describe())
-#print(df.isna().sum())
-
-# %%
-
-# # duplicates analysis; not necessary anymore after Q&A with VITO
-
-# ID_COL = "index"
-# KEY = ['sondeernummer', 'diepte']
-# LABEL = 'lithostrat_id'
-
-# # masks so no alterations to working df
-# index_mask  = df[ID_COL].duplicated(keep = False)                 # index has duplicates
-# key_mask  = df.duplicated(subset = KEY, keep = False)               # key has duplicates
-# rows_mask = df.duplicated(keep = False)                           # fully identical rows
-
-# n_index_dup  = int(index_mask.sum())
-# n_key_dup  = int(key_mask.sum())
-# n_rows_dup = int(rows_mask.sum())
-
-# # duplicate keys (some are expected due to multiple labels)
-# n_labels_per_key = (
-#     df.loc[key_mask, [*KEY, LABEL]]
-#       .groupby(KEY)[LABEL]
-#       .nunique(dropna = False)
-#       .rename('n_labels')
-# )
-
-# multiple_label_keys = n_labels_per_key.index[n_labels_per_key > 1]    # multi-label keys
-# single_label_keys = n_labels_per_key.index[n_labels_per_key ==  1]     # duplicated keys but single label
-
-# # map row-wise: is this row in the duplicate-keys count?
-# rows_in_multiple_label_keys = df.set_index(KEY).index.isin(multiple_label_keys)
-# rows_in_single_label_keys = df.set_index(KEY).index.isin(single_label_keys)
-
-# # index duplicates which are also in label duplicates
-# index_dup_explained = (index_mask & rows_in_multiple_label_keys)
-# n_index_dup_explained = int(index_dup_explained.sum())
-
-# # unexplained index duplicates which are not in label duplicates
-# index_dup_unexplained = (index_mask & ~rows_in_multiple_label_keys)
-# n_index_dup_unexplained = int(index_dup_unexplained.sum())
-
-# # key duplicates -> should not happen, some may be explained due to full row duplicates (same index)
-# key_dup_not_index_dup = (key_mask & ~index_mask)
-# n_key_dup_not_index_dup = int(key_dup_not_index_dup.sum())
-
-# # confirm that the duplicated index actually differs in LABEL for multiple-label rows
-# def index_group_has_label_conflict(g):
-#     # same KEY?
-#     same_key = (g[KEY].nunique(dropna = False) ==  1).all()
-#     # label conflict?
-#     lab_conf = g[LABEL].nunique(dropna = False) > 1
-#     return bool(same_key and lab_conf)
-
-# index_conflict_flags = (
-#     df.loc[index_mask]
-#       .groupby(ID_COL)
-#       .apply(index_group_has_label_conflict)
-# )
-
-# n_index_values_explained = int(index_conflict_flags.sum())  # number of index values (not rows) with label conflict & same key -> multiple-labels problem
-
-# # remaining index-duplicate rows: are there measurement differences (should if index different but not logical)
-# index_unexplained_df = df.loc[index_dup_unexplained].copy()
-# exact_dup = int(index_unexplained_df.duplicated(keep = False).sum())
-
-# # true only if all columns have unique values -> would need different index
-# def unique_values_cols(g):
-#     return (g.nunique(dropna = False) <=  1).all()
-# index_unexplained_identical = (
-#     index_unexplained_df
-#     .groupby(ID_COL)
-#     .apply(unique_values_cols)
-# )
-# n_index_unexplained_identical_ids = int(index_unexplained_identical.sum())
-# n_index_unexplained_nonidentical_ids = int((~index_unexplained_identical).sum())
-
-# # keys expected to have one label
-# singlelabel_rows = df.set_index(KEY).index.isin(single_label_keys)
-# df_singlelabel = df.loc[singlelabel_rows].copy()
-
-# def key_group_identical(g):
-#     # identical if all non-key columns identical
-#     non_key_cols = [c for c in df.columns if c not in KEY]
-#     varying = (g[non_key_cols].nunique(dropna = False) > 1).sum()
-#     return varying ==  0
-
-# # boolean flag true if identical
-# singlelabel_flag = (
-#     df_singlelabel
-#     .groupby(KEY)
-#     .apply(key_group_identical)
-# )
-
-# n_singlelabel_identical_keys   = int(singlelabel_flag.sum())
-# n_singlelabel_nonidentical_keys = int((~singlelabel_flag).sum())
-
-# # summary to print
-# summary = {
-#     "INDEX duplicates rows": n_index_dup,
-#     "KEY (sondeernummer+diepte) duplicates rows ": n_key_dup,
-#     "Exact duplicates rows": n_rows_dup,
-#     "INDEX duplicates rows EXPLAINED by multiple-labels": n_index_dup_explained,
-#     "INDEX duplicates rows UNEXPLAINED by multiple-labels": n_index_dup_unexplained,
-#     "KEY duplicates rows that are NOT INDEX duplicates when they should be": n_key_dup_not_index_dup,
-#     "KEY duplicates with different indices due to multiple-labels": n_index_values_explained,
-#     "UNEXPLAINED INDEX duplicates but IDENTICAL column values, likely safe to reduce to drop duplicates": n_index_unexplained_identical_ids,
-#     "UNEXPLAINED INDEX duplicates which also have DIFFERING column values": n_index_unexplained_nonidentical_ids,
-#     "Single-label KEY-duplicates but IDENTICAL column values, likely safe to drop duplicates": n_singlelabel_identical_keys,
-#     "Single-label KEY-duplicates but DIFFERING column values": n_singlelabel_nonidentical_keys,
-# }
-# print("Duplicate Summary")
-# for k,v in summary.items():
-#     print(f"{k}: {v}")
-
-# # example index-duplicate explained by conflict
-# if n_index_dup_explained > 0:
-#     ix = df.loc[index_dup_explained, ID_COL].iloc[0]
-#     print(f"\nExample INDEX value explained by conflict: {ix!r}")
-#     print(df[df[ID_COL] ==  ix].sort_values(KEY).head())
-
-# # example unexplained index-duplicate
-# if n_index_dup_unexplained > 0:
-#     ix2 = df.loc[index_dup_unexplained, ID_COL].iloc[0]
-#     print(f"\nExample UNEXPLAINED INDEX duplicate: {ix2!r}")
-#     print(df[df[ID_COL] ==  ix2].sort_values(KEY).head())
-
-# # example key-duplicate not in index-duplicates
-# if n_key_dup_not_index_dup > 0:
-#     ex_key = df.loc[key_dup_not_index_dup, KEY].iloc[0].to_dict()
-#     print(f"\nExample KEY duplicate not tied to index-dup: {ex_key}")
-#     print(df[(df['sondeernummer'] ==  ex_key['sondeernummer']) & (df['diepte'] ==  ex_key['diepte'])].head())
-
-# %%
-
-# define two data sets: working and target
-
-# known lithostrat_id
 df_work = ds.impute_params(
     overwrite=False,
     scope="known",
@@ -176,174 +77,170 @@ df_work = ds.impute_params(
     na_cols=["qc", "fs", "rf", "qtn", "fr", "icn", "sbt", "ksbt"],
 )
 
-# unknown lithostrat_id used for prediction
 df_target = ds.unlabeled_data.copy()
 
-# make label categorical
 for d in (df_work, df_target):
     if LABEL in d.columns:
         d[LABEL] = d[LABEL].astype("category")
 
-freq = df_work[LABEL].value_counts(dropna=False)
+# print("Frequency table per label (lithostrat_id)")
+# print(df_work[LABEL].value_counts(dropna=False))
 
-print("Frequency table per label (lithostrat_id)")
-print(freq)
+# =============================================================================
+# 1a. DUPLICATE ANALYSIS (COMMENTED; KEEP FOR LATER)
+# =============================================================================
+"""
+# note to self think about this: only run if duplicate structure needs to be inspected in detail
+df = df_work.copy()
 
-# %%
+ID_COL = "index"          # adjust if needed
+KEY = ["sondeernummer", "diepte"]
+LABEL = "lithostrat_id"
 
-# # print(df_work.isna().sum())
-# # print(df_target.isna().sum())
+index_mask = df[ID_COL].duplicated(keep=False)
+key_mask = df.duplicated(subset=KEY, keep=False)
+rows_mask = df.duplicated(keep=False)
 
-# # imputing missing values, however, dropping NA could be a good alternative due to small proportion of missingness
-# # only for 3 vars, maybe extend later when developing data import automation (TODO)
+n_index_dup = int(index_mask.sum())
+n_key_dup = int(key_mask.sum())
+n_rows_dup = int(rows_mask.sum())
 
-# # to impute parameters, formulas from ChatGPT were used -> needs adjustment after lit review TODO
+n_labels_per_key = (
+    df.loc[key_mask, [*KEY, LABEL]]
+      .groupby(KEY)[LABEL]
+      .nunique(dropna=False)
+      .rename("n_labels")
+)
 
-# def impute_params (df, overwrite = False):
-#     df = df.copy()
+multiple_label_keys = n_labels_per_key.index[n_labels_per_key > 1]
+single_label_keys   = n_labels_per_key.index[n_labels_per_key == 1]
 
-#     # icn
-#     mask_icn = df['icn'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-#     valid_icn = mask_icn & df['qtn'].gt(0) & df['fr'].gt(0)
-    
-#     icn_new = np.sqrt((3.47 - np.log10(df.loc[valid_icn, 'qtn']))**2 +
-#                       (np.log10(df.loc[valid_icn, 'fr']) + 1.22)**2)
-    
-#     df.loc[valid_icn, 'icn'] = icn_new
-    
-#     # sbt
-#     def sbt_from_ic(ic):
-#         if pd.isna(ic):
-#             return np.nan
-#         if ic < 1.31: return 1
-#         elif ic < 2.05: return 2
-#         elif ic < 2.60: return 3
-#         elif ic < 2.95: return 4
-#         elif ic < 3.60: return 5
-#         else: return 6
-    
-#     mask_sbt = df['sbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-#     df.loc[mask_sbt, 'sbt'] = df.loc[mask_sbt, 'icn'].apply(sbt_from_ic)
-    
-#     # ksbt
-#     df['ksbt'] = pd.to_numeric(df['ksbt'], errors = 'coerce')
-#     def ksbt_from_ic(ic):
-#         if pd.isna(ic):
-#             return np.nan
-#         if 1.0 < ic <=  3.27:
-#             return 10 ** (0.952 - 3.04 * ic)
-#         elif 3.27 > ic: # < 4.0:
-#             return 10 ** (-4.52 - 1.37 * ic)
-#         else:
-#             return np.nan
-    
-#     mask_ksbt = df['ksbt'].isna() if not overwrite else np.ones(len(df), dtype = bool)
-#     df.loc[mask_ksbt, 'ksbt'] = df.loc[mask_ksbt, 'icn'].apply(ksbt_from_ic)
-    
-#     return df
+rows_in_multiple_label_keys = df.set_index(KEY).index.isin(multiple_label_keys)
+rows_in_single_label_keys   = df.set_index(KEY).index.isin(single_label_keys)
 
-# df_work = impute_params(df_work)
-# # print(df_work.isna().sum())
+index_dup_explained = (index_mask & rows_in_multiple_label_keys)
+n_index_dup_explained = int(index_dup_explained.sum())
 
-# %%
+index_dup_unexplained = (index_mask & ~rows_in_multiple_label_keys)
+n_index_dup_unexplained = int(index_dup_unexplained.sum())
 
-# # are there wrong values?
-# # no negative values for qc and fs
-# print("qc < 0:", (df_work['qc'] < 0).sum())
-# print("fs < 0:", (df_work['fs'] < 0).sum())
+key_dup_not_index_dup = (key_mask & ~index_mask)
+n_key_dup_not_index_dup = int(key_dup_not_index_dup.sum())
 
-# # this section is based on ChatGPT values: what are expected limits for each var -> needs adjustment after review from Vito TODO; are there even impossible values or just unlikely?
-# # probably not needed for model development but check (TODO)
+def index_group_has_label_conflict(g):
+    same_key = (g[KEY].nunique(dropna=False) == 1).all()
+    lab_conf = g[LABEL].nunique(dropna=False) > 1
+    return bool(same_key and lab_conf)
 
-# def check_computed_limits(df,
-#                           qc_max = 50.0,  
-#                           fs_max = 1.0,   
-#                           rf_max = 20.0,
-#                           fr_max = 20.0,
-#                           qtn_max = 1e4,
-#                           icn_max = 5.0,
-#                           ksbt_min = 1e-12,
-#                           ksbt_max = 1e-2):
-#     summary = {}
+index_conflict_flags = (
+    df.loc[index_mask]
+      .groupby(ID_COL)
+      .apply(index_group_has_label_conflict)
+)
 
-#     # qc (tip resistance, should be > 0)
-#     summary['qc'] = {
-#         "min": df["qc"].min(),
-#         "max": df["qc"].max(),
-#         "outside_exp": ((df["qc"] < =  0) | (df["qc"] > qc_max)).sum()
-#     }
+n_index_values_explained = int(index_conflict_flags.sum())
 
-#     # fs (sleeve friction, should be > =  0)
-#     summary['fs'] = {
-#         "min": df["fs"].min(),
-#         "max": df["fs"].max(),
-#         "outside_exp": ((df["fs"] < 0) | (df["fs"] > fs_max)).sum()
-#     }
+index_unexplained_df = df.loc[index_dup_unexplained].copy()
 
-#     # rf (friction ratio, %)
-#     summary['rf'] = {
-#         'min': df['rf'].min(),
-#         'max': df['rf'].max(),
-#         'outside_exp': ((df['rf'] < =  0) | (df['rf'] > rf_max)).sum()
-#     }
+def unique_values_cols(g):
+    return (g.nunique(dropna=False) <= 1).all()
 
-#     # fr (normalized friction ratio, %)
-#     summary['fr'] = {
-#         'min': df['fr'].min(),
-#         'max': df['fr'].max(),
-#         'outside_exp': ((df['fr'] < =  0) | (df['fr'] > fr_max)).sum()
-#     }
+index_unexplained_identical = (
+    index_unexplained_df
+    .groupby(ID_COL)
+    .apply(unique_values_cols)
+)
+n_index_unexplained_identical_ids = int(index_unexplained_identical.sum())
+n_index_unexplained_nonidentical_ids = int((~index_unexplained_identical).sum())
 
-#     # qtn (normalized tip resistance)
-#     summary['qtn'] = {
-#         'min': df['qtn'].min(),
-#         'max': df['qtn'].max(),
-#         'outside_exp': ((df['qtn'] < =  0) | (df['qtn'] > qtn_max)).sum()
-#     }
+singlelabel_rows = df.set_index(KEY).index.isin(single_label_keys)
+df_singlelabel = df.loc[singlelabel_rows].copy()
 
-#     # icn (SBT index)
-#     summary['icn'] = {
-#         'min': df['icn'].min(),
-#         'max': df['icn'].max(),
-#         'outside_exp': ((df['icn'] < 0) | (df['icn'] > icn_max)).sum()
-#     }
+def key_group_identical(g):
+    non_key_cols = [c for c in df.columns if c not in KEY]
+    varying = (g[non_key_cols].nunique(dropna=False) > 1).sum()
+    return varying == 0
 
-#     # ksbt (hydraulic conductivity, m/s)
-#     summary['ksbt'] = {
-#         'min': df['ksbt'].min(),
-#         'max': df['ksbt'].max(),
-#         'outside_exp': ((df['ksbt'] > ksbt_max) | (df['ksbt'] < ksbt_min)).sum()
-#     }
+singlelabel_flag = (
+    df_singlelabel
+    .groupby(KEY)
+    .apply(key_group_identical)
+)
 
-#     return pd.DataFrame(summary).T
+n_singlelabel_identical_keys    = int(singlelabel_flag.sum())
+n_singlelabel_nonidentical_keys = int((~singlelabel_flag).sum())
 
-# print(check_computed_limits(df_work))
+summary = {
+    "INDEX duplicates rows": n_index_dup,
+    "KEY (sondeernummer+diepte) duplicates rows ": n_key_dup,
+    "Exact duplicates rows": n_rows_dup,
+    "INDEX duplicates rows EXPLAINED by multiple-labels": n_index_dup_explained,
+    "INDEX duplicates rows UNEXPLAINED by multiple-labels": n_index_dup_unexplained,
+    "KEY duplicates rows that are NOT INDEX duplicates when they should be": n_key_dup_not_index_dup,
+    "KEY duplicates with different indices due to multiple-labels": n_index_values_explained,
+    "UNEXPLAINED INDEX duplicates but IDENTICAL column values, likely safe to reduce to drop duplicates": n_index_unexplained_identical_ids,
+    "UNEXPLAINED INDEX duplicates which also have DIFFERING column values": n_index_unexplained_nonidentical_ids,
+    "Single-label KEY-duplicates but IDENTICAL column values, likely safe to drop duplicates": n_singlelabel_identical_keys,
+    "Single-label KEY-duplicates but DIFFERING column values": n_singlelabel_nonidentical_keys,
+}
+print("Duplicate Summary")
+for k, v in summary.items():
+    print(f"{k}: {v}")
+"""
 
-# %%
+# =============================================================================
+# 2. FEATURE EXTRACTION
+# =============================================================================
 
-# building a feature extractor: from each CPT, the features need to be stored
-vars_num = ["qc","fs","rf","qtn","fr","icn","ksbt"]
+vars_num = ["qc", "fs", "rf", "qtn", "fr", "icn", "ksbt"]
 
 feat_all = extract_features(
     df_work,
-    vars_num = vars_num,
-    depth_col = "diepte",
-    depth_mtaw_col = "diepte_mtaw",
-    label_col = "lithostrat_id",
-    cpt_col = "sondeernummer",
-    min_n = 5,                
+    vars_num=vars_num,
+    depth_col="diepte",
+    depth_mtaw_col="diepte_mtaw",
+    label_col="lithostrat_id",
+    cpt_col="sondeernummer",
+    min_n=5,
 )
-print(feat_all.head())
-# feat_all.to_excel("features.xlsx", index = False)
 
-# %%
+# print("Feature table (head):")
+# print(feat_all.head())
 
-# building the geospatial model
-# first, using a grid-based method to create tiles
-feat_with_tiles, feat_train, feat_test, X_train, X_test, y_train, y_test = tile_split(
+# =============================================================================
+# 2a. MAP sondering_id ONTO FEATURES
+# =============================================================================
+
+if "sondering_id" not in df_work.columns:
+    raise ValueError("Column 'sondering_id' not found in df_work, but JSON split uses it.")
+
+id_map = (
+    df_work[["sondeernummer", "sondering_id"]]
+    .drop_duplicates("sondeernummer")
+)
+
+feat_all = feat_all.merge(id_map, on="sondeernummer", how="left")
+
+if feat_all["sondering_id"].isna().any():
+    n_missing = int(feat_all["sondering_id"].isna().sum())
+    print(f"WARNING: sondering_id missing for {n_missing} feature rows after merge")
+
+# =============================================================================
+# 3. TILES FOR SPATIAL CONTEXT
+# =============================================================================
+
+(
+    feat_with_tiles,   # all rows with tile/xbin/ybin
+    feat_train_tile,   # TILE-BASED train set
+    feat_test_tile,    # TILE-BASED test set
+    X_train_unused,
+    X_test_unused,
+    y_train_unused,
+    y_test_unused,
+) = tile_split(
     feat_all,
-    Gx=4,
-    Gy=4,
+    Gx=5,
+    Gy=5,
     train_frac=0.70,
     random_state=22,
     x_col="x",
@@ -351,6 +248,7 @@ feat_with_tiles, feat_train, feat_test, X_train, X_test, y_train, y_test = tile_
     cpt_col="sondeernummer",
     label_col="layer_label",
     extra_id_cols=[
+        "sondering_id",
         "start_depth",
         "end_depth",
         "start_depth_mtaw",
@@ -361,253 +259,248 @@ feat_with_tiles, feat_train, feat_test, X_train, X_test, y_train, y_test = tile_
     ],
 )
 
-# label counts, due to small train, some labels may not be part of train and can't be modelled
-# print("Train label counts:")
-# print(feat_train["layer_label"].value_counts().to_string())
+for df_ in (feat_train_tile, feat_test_tile):
+    if "layer_label" in df_.columns:
+        df_["layer_label"] = df_["layer_label"].astype("category")
 
-# print("Test label counts:")
-# print(feat_test["layer_label"].value_counts().to_string())
+# tile_counts = feat_with_tiles.groupby("tile")["sondeernummer"].nunique()
+# print("Tiles and CPT counts per tile:")
+# print(tile_counts)
+# print("Total number of unique tiles:", tile_counts.index.nunique())
 
-# %%
+# =============================================================================
+# 4. LOAD JSON SPLIT AND BUILD TRAIN / TEST BY sondering_id (for comparison with other models, only needed for reporting)
+# =============================================================================
 
-# using k nearest ROWS (but not in same tile) and mtaw as elevation feature tau
-def predict_label(row, feat_train, k = 5, tau = None):
-    dx = feat_train["x"].to_numpy() - float(row["x"]) # x coord distances
-    dy = feat_train["y"].to_numpy() - float(row["y"]) # y coord distances
-    # euclidian distances
-    d = np.hypot(dx, dy)
+with open(SPLIT_JSON_PATH, "r") as f:
+    split = json.load(f)
 
-    k = min(k, len(feat_train)) # k < n train samples
-    nn_index = np.argpartition(d, kth = k-1)[:k] # argpartition: k smallest distances d in first k positions
-    cand = feat_train.iloc[nn_index].copy()
-    cand["_dist"] = d[nn_index] # adds distances to candidate neighbour rows
+train_ids_json = {str(i) for i in split["train_ids"]}
+test_ids_json = {str(i) for i in split["test_ids"]}
 
-    mean_mtaw = float(row["mean_depth_mtaw"])
+CPT_ID_COL = "sondering_id"
+if CPT_ID_COL not in feat_with_tiles.columns:
+    raise ValueError(f"{CPT_ID_COL!r} not present in feat_with_tiles")
 
-    cand = cand.copy()
-    cand["_elev_diff"] = (cand["mean_depth_mtaw"] - mean_mtaw).abs()
-    aligned = cand[cand["_elev_diff"] <=  tau]
-    if aligned.empty:
-        aligned = cand.nsmallest(k, "_elev_diff")
-    cand = aligned.drop(columns = "_elev_diff")
+feat_with_tiles["cpt_id_str"] = feat_with_tiles[CPT_ID_COL].astype(str)
 
-    weights = {}
-    for label, dist in zip(cand["layer_label"], cand["_dist"]):
-        w = 1.0 / (dist + 1.0)   # distance-weighted, could use other methods? Gaussian kernel? TODO: think about it
-        weights[label] = weights.get(label, 0.0) + w
+feat_train_json = feat_with_tiles[feat_with_tiles["cpt_id_str"].isin(train_ids_json)].copy()
+feat_test_json  = feat_with_tiles[feat_with_tiles["cpt_id_str"].isin(test_ids_json)].copy()
 
-    best_label, best_weight = None, -1.0
-    for label, w in weights.items():
-        if w > best_weight:
-            best_label, best_weight = label, w
-    return best_label
+print(f"feat_train_json shape (JSON split via sondering_id): {feat_train_json.shape}")
+print(f"feat_test_json  shape (JSON split via sondering_id): {feat_test_json.shape}")
 
-# %%
+for df_ in (feat_train_json, feat_test_json):
+    if "layer_label" in df_.columns:
+        df_["layer_label"] = df_["layer_label"].astype("category")
 
-# using k nearest unique CPTs, again mtaw as elevation feature tau
-def predict_label_by_cpt(row, feat_train, k_cpt = 5, tau = None):
-    cpt_xy = (feat_train.groupby("sondeernummer")[["x","y"]]
-              .first().reset_index())
-    dx = cpt_xy["x"].to_numpy() - float(row["x"])
-    dy = cpt_xy["y"].to_numpy() - float(row["y"])
-    d = np.hypot(dx, dy) # euclidian distances
+# === HYBRID MODEL: USE TILE-BASED SPLIT ===
+feat_train = feat_train_tile.copy()
+feat_test  = feat_test_tile.copy()
 
-    k = min(k_cpt, len(cpt_xy)) # k < n train samples
-    nn_index = np.argpartition(d, kth = k-1)[:k]
-    cand_cpts = set(cpt_xy.iloc[nn_index]["sondeernummer"])
+# training set used for LOOCV (tile-based train CPTs)
+train_with_tiles = feat_train.copy()
 
-    # per CPT, choose labelled groups closest in absolute depth mtaw
-    mean_mtaw = float(row["mean_depth_mtaw"])
-    cand = (feat_train[feat_train["sondeernummer"].isin(cand_cpts)]
-            .assign(_elev_diff = lambda df: (df["mean_depth_mtaw"] - mean_mtaw).abs()))
-    cand = cand.sort_values(["sondeernummer","_elev_diff"]).groupby("sondeernummer").head(1).copy()
+# =============================================================================
+# 5. FEATURE ENGINEERING FOR HYBRID MODELS
+# =============================================================================
 
-    # maybe remove this for small train?  too far in elevation
-    if tau is not None:
-        keep = cand["_elev_diff"] <=  tau
-        if keep.any():
-            cand = cand[keep]
-
-    # distance from test point to each CPT
-    dmap = dict(zip(cpt_xy.iloc[nn_index]["sondeernummer"], d[nn_index]))
-    cand["_dist"] = cand["sondeernummer"].map(dmap).astype(float)
-
-    # distance-weighted, again maybe change
-    weights = {}
-    for label, dist in zip(cand["layer_label"], cand["_dist"]):
-        w = 1.0 / (dist + 1.0)
-        weights[label] = weights.get(label, 0.0) + w
-
-    best_label, best_weight = None, -1.0
-    for label, w in weights.items():
-        if w > best_weight:
-            best_label, best_weight = label, w
-    return best_label
-
-# %%
-# evaluate
-
-def eval_nearest_row_pred(feat_train, feat_test, k_list = (3,5,7,10), tau_list = (2.0,3.0,5.0)): # hyperparameter tuning
-    seen = set(feat_train["layer_label"])
-    test_set = feat_test[feat_test["layer_label"].isin(seen)].copy()
-    rows = []
-    for k in k_list:
-        for tau in tau_list:
-            preds = test_set.apply(lambda r: predict_label(r, feat_train, k = k, tau = tau), axis = 1)
-            acc = (preds == test_set["layer_label"]).mean()
-            rows.append(("rows_based", k, tau, acc))
-    return pd.DataFrame(rows, columns = ["model","k","tau","acc"]).sort_values("acc", ascending = False)
-
-def eval_nearest_cpt_pred(feat_train, feat_test, k_list = (3,5,7,10), tau_list = (2.0,3.0,5.0)):
-    seen = set(feat_train["layer_label"])
-    test_set = feat_test[feat_test["layer_label"].isin(seen)].copy()
-    rows = []
-    for k in k_list:
-        for tau in tau_list:
-            preds = test_set.apply(lambda r: predict_label_by_cpt(r, feat_train, k_cpt = k, tau = tau), axis = 1)
-            acc = (preds == test_set["layer_label"]).mean()
-            rows.append(("cpt_based", k, tau, acc))
-    return pd.DataFrame(rows, columns = ["model","k","tau","acc"]).sort_values("acc", ascending = False)
-
-print("Nearest row evaluation")
-print(eval_nearest_row_pred(feat_train, feat_test).to_string(index = False))
-print("Nearest CPT evaluation")
-print(eval_nearest_cpt_pred(feat_train, feat_test).to_string(index = False))
-
-# evaluation for row-based spatial model with k = 5, tau = 2.0
-feat_test = feat_test.copy()
-feat_test["pred_knn"] = feat_test.apply(lambda r: predict_label(r, feat_train, k = 5, tau = 2.0), axis = 1)
-
-mask_seen = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
-
-# accuracy only labels present in train
-if mask_seen.any():
-    acc = (feat_test.loc[mask_seen, "pred_knn"] == feat_test.loc[mask_seen, "layer_label"]).mean()
-    print(f"Row-based spatial kNN (k = 5, tau = 2m) accuracy on seen-label subset: {acc:.3f}")
-else:
-    print("None of the test labels are present in train.")
-
-# unseen labels
-unseen_counts = feat_test.loc[~mask_seen, "layer_label"].value_counts()
-if len(unseen_counts):
-    print("Test labels unseen in TRAIN (not predictable):")
-    print(unseen_counts.to_string())
-
-# per-label accuracy used for model assessment/improvement
-
-per_class_acc = (
-    (feat_test.loc[mask_seen, "pred_knn"] == feat_test.loc[mask_seen, "layer_label"])
-    .groupby(feat_test.loc[mask_seen, "layer_label"]).mean()
-    .rename("acc")
-)
-support = feat_test.loc[mask_seen, "layer_label"].value_counts().rename("n")
-print("per-label (top 10 by support):")
-print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending = False).head(10).to_string())
-
-
-# %%
-
-# combine spatial model with features
-# for now, choose drilling measurements (qc, fs - cone and sleeve resistance), the respective vertical changes, geological data (thickness, elevation)
-
-# added this part after the csv was uploaded
 eps = 1e-6
-for df in (feat_train, feat_test):
-    df["rf_mean"] = 100.0 * (df["fs_mean"] / (df["qc_mean"] + eps))
-    df["log_qc_mean"] = np.log(np.maximum(df["qc_mean"], eps))
-    df["log_rf_mean"] = np.log(np.maximum(df["rf_mean"], eps))
 
-# modification after csv: add rf_mean, logs
+for df_ in (feat_train, feat_test, train_with_tiles):
+    df_["rf_mean"] = 100.0 * (df_["fs_mean"] / (df_["qc_mean"] + eps))
+    df_["log_qc_mean"] = np.log(np.maximum(df_["qc_mean"], eps))
+    df_["log_rf_mean"] = np.log(np.maximum(df_["rf_mean"], eps))
+
 feat_cols = [
     "qc_mean", "fs_mean",
     "rf_mean",
     "qc_d_dz_mean", "fs_d_dz_mean",
     "thickness",
-    "log_qc_mean", "log_rf_mean"
+    "log_qc_mean", "log_rf_mean",
 ]
 
-min_thickness = 0.5  # meters
-feat_train_f = feat_train[feat_train["thickness"] >= min_thickness].copy()
-feat_test_f  = feat_test[ feat_test["thickness"]  >= min_thickness].copy()
+min_thickness_for_stats = 0.5 # as suggested in Q&A, influences JSON acc results
 
-# modified the mu, sd calc after the Q&A: option to drop thin layers
-mu = feat_train_f[feat_cols].mean(numeric_only=True)
-sd = feat_train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
-z_scores_train = ((feat_train_f[feat_cols] - mu) / sd)
+feat_train_f = feat_train[feat_train["thickness"] >= min_thickness_for_stats].copy()
+mu_global = feat_train_f[feat_cols].mean(numeric_only=True)
+sd_global = feat_train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
 
-# calculating z-scores
-# # standard calc (without removing thin layers)   
-# mu = feat_train[feat_cols].mean(numeric_only = True)
-# sd = feat_train[feat_cols].std(ddof = 1, numeric_only = True).replace(0,1)
-z_scores_train = ((feat_train[feat_cols].fillna(mu)) - mu) / sd
-z_scores_test  = ((feat_test[feat_cols].fillna(mu)) - mu) / sd
+z_scores_train_global = ((feat_train[feat_cols].fillna(mu_global)) - mu_global) / sd_global
+z_scores_test_global = ((feat_test[feat_cols].fillna(mu_global)) - mu_global) / sd_global
 
-# reset index, maybe not needed if we clean indexes in initial data handling (TODO)
-feat_train_reset = feat_train.reset_index(drop = True)
-feat_test_reset  = feat_test.reset_index(drop = True)
+certainty_weight = None
 
-# numpy matrices should be better for distance calculations
-train_feat_mat = z_scores_train.to_numpy(dtype = float)
-test_feat_mat  = z_scores_test.to_numpy(dtype = float)
+# ============================================================================
+# 6. FEATURE DIAGNOSTICS: DISCRIMINABILITY AND CORRELATION
+# ============================================================================
 
-# adding label certainty as weight
-# certainty_scale = {"low": 0.5, "medium": 1.0, "high": 2.0, "very high": 6.0}
-# label_certainty = {
-#     "Quartair": "low",
-#     "Diest": "medium",
-#     "Bolderberg": "medium",
-#     "Sint_Huibrechts_Hern": "medium",
-#     "Ursel": "high",
-#     "Asse": "high",
-#     "Wemmel": "high",
-#     "Lede": "high",
-#     "Brussel": "high",
-#     "Merelbeke": "very high",
-#     "Kwatrecht": "high",
-#     "Mont_Panisel": "high",
-#     "Aalbeke": "very high",
-#     "Mons_en_Pevele": "very high",
-# }
-# certainty_weight = {lab: certainty_scale[label_certainty[lab]]
-#     for lab in label_certainty}
+def feature_discriminability_table(df, feat_cols, label_col="layer_label"):
+    """
+    Computes ANOVA F-statistic and p-value for each feature vs the label.
+    Higher F -> stronger between-class separation relative to within-class variance.
+    """
+    sub = df.dropna(subset=feat_cols + [label_col]).copy()
 
-certainty_weight = None # not using label certainty weighting
+    # encode categories as integers for f_classif
+    if isinstance(sub[label_col].dtype, pd.CategoricalDtype):
+        y = sub[label_col].cat.codes.to_numpy()
+    else:
+        y = sub[label_col].astype("category").cat.codes.to_numpy()
 
-def inv_weight(d, labels = None, certainty_weights = None):
-    d = np.asarray(d, dtype = float)
+    X = sub[feat_cols].to_numpy(dtype=float)
+
+    F_vals, p_vals = f_classif(X, y)
+
+    tab = pd.DataFrame({
+        "feature": feat_cols,
+        "F_stat": F_vals,
+        "p_value": p_vals,
+    }).sort_values("F_stat", ascending=False)
+
+    return tab.reset_index(drop=True)
+
+# columns that are NOT candidate features
+id_like_cols = [
+    "sondeernummer",
+    "sondering_id",
+    "cpt_id_str",
+    "layer_label",
+    "x",
+    "y",
+    "tile",
+    "xbin",  # note to self think about this: keep spatial info in spatial distance, not in features
+    "start_depth",
+    "end_depth",
+    "start_depth_mtaw",
+    "end_depth_mtaw",
+    "mean_depth_mtaw",
+    "n_samples_used",
+]
+
+id_like_cols = [c for c in id_like_cols if c in train_with_tiles.columns]
+
+numeric_cols = train_with_tiles.select_dtypes(include=[np.number]).columns.tolist()
+
+candidate_feat_cols = [c for c in numeric_cols if c not in id_like_cols]
+
+def select_features_by_f_and_corr(
+    df,
+    disc_table,
+    max_features=20,
+    corr_threshold=0.95,
+):
+    """
+    Takes a discriminability table (feature, F_stat, p_value),
+    and selects at most `max_features` features by:
+      1) sorting by F_stat (desc),
+      2) iteratively adding features that have |corr| < corr_threshold
+         to all already selected ones.
+    """
+    disc_sorted = disc_table.sort_values("F_stat", ascending=False).reset_index(drop=True)
+    feat_list = disc_sorted["feature"].tolist()
+
+    corr = df[feat_list].corr().abs()
+
+    selected = []
+
+    for feat in feat_list:
+        if len(selected) == 0:
+            selected.append(feat)
+        else:
+            too_correlated = any(
+                corr.loc[feat, s] >= corr_threshold
+                for s in selected
+                if feat in corr.index and s in corr.columns
+            )
+            if not too_correlated:
+                selected.append(feat)
+
+        if len(selected) >= max_features:
+            break
+
+    return selected
+
+if MODEL_SELECTION_MODE:
+    print("\nNumber of candidate numeric features:", len(candidate_feat_cols))
+    print("Example candidate features:", candidate_feat_cols[:15])
+
+    disc_all = feature_discriminability_table(
+        train_with_tiles,
+        feat_cols=candidate_feat_cols,
+        label_col="layer_label",
+    )
+
+    print("\n=== FEATURE DISCRIMINABILITY (ANOVA F-test) ON TRAIN-WITH-TILES (ALL NUMERIC FEATURES) ===")
+    print(disc_all.head(30).to_string(index=False))
+
+    selected_feat_cols = select_features_by_f_and_corr(
+        df=train_with_tiles,
+        disc_table=disc_all,
+        max_features=5,      # after running LOOCV on sets of max_features, 5 is best
+        corr_threshold=0.95,
+    )
+
+    print("\n=== SELECTED FEATURES AFTER F + CORRELATION PRUNING ===")
+    print("Number of selected features:", len(selected_feat_cols))
+    for f in selected_feat_cols:
+        row = disc_all[disc_all["feature"] == f].iloc[0]
+        print(f"{f:35s}  F={row['F_stat']:.2f}, p={row['p_value']:.2e}")
+
+    # override base feat_cols with selected ones
+    feat_cols = selected_feat_cols
+else:
+    # Directly use manually specified features from the top of the file
+    if not FINAL_FEAT_COLS:
+        raise ValueError(
+            "MODEL_SELECTION_MODE is False but FINAL_FEAT_COLS is empty. "
+            "Fill FINAL_FEAT_COLS with best feature set."
+        )
+    feat_cols = FINAL_FEAT_COLS
+    print("\nSkipping feature selection — using FINAL_FEAT_COLS:")
+    print(feat_cols)
+
+# =============================================================================
+# 7. HELPER: WEIGHTING AND HYBRID PREDICTORS
+# =============================================================================
+
+def inv_weight(d, labels=None, certainty_weights=None):
+    d = np.asarray(d, dtype=float)
     w = 1.0 / (d + 1.0)
-    # additional for label weighting, turns out that label weighting did not improve the model
-    # made it into a conditional statement instead
     if labels is not None and certainty_weights is not None:
         cw = np.array([float(certainty_weights.get(lab, 1.0)) for lab in labels], dtype=float)
         w *= cw
     return w
 
-def predict_label_hybrid(
+def predict_label_hybrid_row(
     row,
     feat_train,
     z_scores_train,
-    feat_cols, mu, sd,
-    k = 5, tau = 5.0, alpha = 1.0, beta = 1.0,
-    x_sd = None, y_sd = None,
-    certainty_weights = None, # addition for label certainty weighting
-    tau_max = None, tau_multi = 1.5 # addition for adaptive tau:
-    # instead of removing tau filter entirely if no data with similar tau is available, rather expand tau
+    feat_cols,
+    mu,
+    sd,
+    k=7,
+    tau=10.0,
+    alpha=1.0,
+    beta=1.0,
+    x_sd=None,
+    y_sd=None,
+    certainty_weights=None,
+    tau_max=None,
+    tau_multi=1.5,
 ):
-
-    # using spatial scaling (with sds from train and fallback to 1.0) - introduced after initial model assessment
     if x_sd is None:
-        x_sd = float(feat_train["x"].std(ddof = 1)) or 1.0
+        x_sd = float(feat_train["x"].std(ddof=1)) or 1.0
     if y_sd is None:
-        y_sd = float(feat_train["y"].std(ddof = 1)) or 1.0
+        y_sd = float(feat_train["y"].std(ddof=1)) or 1.0
 
-    # from here on, initial model
-    x0 = float(row["x"]); y0 = float(row["y"])
-    dx = (feat_train["x"].to_numpy(dtype = float) - x0) / x_sd
-    dy = (feat_train["y"].to_numpy(dtype = float) - y0) / y_sd
+    x0 = float(row["x"])
+    y0 = float(row["y"])
+
+    dx = (feat_train["x"].to_numpy(dtype=float) - x0) / x_sd
+    dy = (feat_train["y"].to_numpy(dtype=float) - y0) / y_sd
     d_spatial = np.hypot(dx, dy)
 
-    # similar elevation requirement
     mean_mtaw_q = float(row["mean_depth_mtaw"])
     elev_diff_all = np.abs(feat_train["mean_depth_mtaw"].to_numpy(float) - mean_mtaw_q)
 
@@ -615,34 +508,35 @@ def predict_label_hybrid(
         tau_current = 0.0
     else:
         tau_current = float(tau)
-    tau_cap  = float(tau_max) if tau_max is not None else (tau_current if tau_current > 0 else 1.0) * 5.0
+
+    if tau_max is None:
+        tau_cap = (tau_current if tau_current > 0 else 1.0) * 5.0
+    else:
+        tau_cap = float(tau_max)
 
     while True:
         mask = elev_diff_all <= tau_current
         if np.count_nonzero(mask) >= max(1, k) or tau_current >= tau_cap:
             break
-        tau_current *= tau_multi  # expand window
-    
+        tau_current *= tau_multi
+
     if not np.any(mask):
         k_all = min(int(k), len(feat_train))
-        nn_local_index = np.argpartition(elev_diff_all, kth=k_all-1)[:k_all]
+        nn_local_index = np.argpartition(elev_diff_all, kth=k_all - 1)[:k_all]
         mask = np.zeros(len(feat_train), dtype=bool)
         mask[nn_local_index] = True
 
-    # row vectors
-    row_vals = row.reindex(feat_cols).to_numpy(dtype = float, copy = False)
-    row_vec  = (row_vals - mu.to_numpy(dtype = float)) / sd.to_numpy(dtype = float)
-    
-    # feature distances
-    train_mat_sub = z_scores_train[mask]
-    d_feat_sub = np.linalg.norm(train_mat_sub - row_vec, axis = 1)
+    row_vals = row.reindex(feat_cols).to_numpy(dtype=float, copy=False)
+    row_vec = (row_vals - mu.to_numpy(dtype=float)) / sd.to_numpy(dtype=float)
 
-    # spatial distances
+    train_mat_sub = z_scores_train[mask]
+    d_feat_sub = np.linalg.norm(train_mat_sub - row_vec, axis=1)
+
     d_spatial_sub = d_spatial[mask]
     d_combo_sub = np.sqrt(alpha * (d_spatial_sub ** 2) + beta * (d_feat_sub ** 2))
 
     k_eff = min(int(k), len(d_combo_sub))
-    nn_local_index = np.argpartition(d_combo_sub, kth = k_eff - 1)[:k_eff]
+    nn_local_index = np.argpartition(d_combo_sub, kth=k_eff - 1)[:k_eff]
     train_indices = np.flatnonzero(mask)[nn_local_index]
 
     labels = feat_train.iloc[train_indices]["layer_label"].to_numpy()
@@ -656,683 +550,730 @@ def predict_label_hybrid(
     sorted_labels = sorted(weights_by_label.items(), key=lambda x: x[1], reverse=True)
 
     best_label, best_weight = sorted_labels[0]
-
-    second_label, second_weight = (sorted_labels[1] 
-                                if len(sorted_labels) > 1 
-                                else (None, 0.0))
+    second_label, second_weight = (None, 0.0)
+    if len(sorted_labels) > 1:
+        second_label, second_weight = sorted_labels[1]
 
     return {
         "best_label": best_label,
         "best_weight": best_weight,
         "second_label": second_label,
         "second_weight": second_weight,
-        "weights_by_label": weights_by_label
+        "weights_by_label": weights_by_label,
     }
 
-# %% eval hybrid model
-def eval_hybrid_row_pred(
+def predict_label_hybrid_cpt(
+    row,
     feat_train,
-    feat_test,
     z_scores_train,
-    feat_cols, mu, sd,
-    k_list = (3,5,7,10),
-    tau_list = (2.0,3.0,5.0),
-    alpha_list = (0.5,1.0,2.0),
-    beta_list = (0.5,1.0,2.0),
-    x_sd = None, y_sd = None,
-    certainty_weights = None # addition for label certainty weighting
+    feat_cols,
+    mu,
+    sd,
+    k_cpt=7,
+    tau=10.0,
+    alpha=1.0,
+    beta=1.0,
+    x_sd=None,
+    y_sd=None,
+    certainty_weights=None,
 ):
-    seen = set(feat_train["layer_label"])
-    test_set = feat_test[feat_test["layer_label"].isin(seen)].copy()
-    rows = []
+    cpt_xy = (
+        feat_train.groupby("sondeernummer")[["x", "y"]]
+        .first()
+        .reset_index()
+    )
+
+    if x_sd is None:
+        x_sd = float(cpt_xy["x"].std(ddof=1)) or 1.0
+    if y_sd is None:
+        y_sd = float(cpt_xy["y"].std(ddof=1)) or 1.0
+
+    x0 = float(row["x"])
+    y0 = float(row["y"])
+
+    dx = (cpt_xy["x"].to_numpy(dtype=float) - x0) / x_sd
+    dy = (cpt_xy["y"].to_numpy(dtype=float) - y0) / y_sd
+    d_spatial = np.hypot(dx, dy)
+
+    k_eff = min(int(k_cpt), len(cpt_xy))
+    nn_index = np.argpartition(d_spatial, kth=k_eff - 1)[:k_eff]
+    cand_cpts = cpt_xy.iloc[nn_index]["sondeernummer"].to_numpy()
+    d_spatial_nn = d_spatial[nn_index]
+
+    mean_mtaw_q = float(row["mean_depth_mtaw"])
+
+    cand = (
+        feat_train[feat_train["sondeernummer"].isin(cand_cpts)]
+        .assign(_elev_diff=lambda df: (df["mean_depth_mtaw"] - mean_mtaw_q).abs())
+    )
+    cand = (
+        cand.sort_values(["sondeernummer", "_elev_diff"])
+        .groupby("sondeernummer")
+        .head(1)
+        .copy()
+    )
+
+    if tau is not None:
+        keep = cand["_elev_diff"] <= tau
+        if keep.any():
+            cand = cand[keep]
+
+    dmap = dict(zip(cpt_xy.iloc[nn_index]["sondeernummer"], d_spatial_nn))
+    cand["_d_spatial"] = cand["sondeernummer"].map(dmap).astype(float)
+
+    row_vec = ((row.reindex(feat_cols).to_numpy(float) - mu.to_numpy(float)) / sd.to_numpy(float))
+
+    train_idx = cand.index
+    train_mat = z_scores_train.loc[train_idx, feat_cols].to_numpy(float)
+    d_feat = np.linalg.norm(train_mat - row_vec, axis=1)
+
+    d_combo = np.sqrt(alpha * cand["_d_spatial"].to_numpy() ** 2 + beta * d_feat ** 2)
+
+    labels = cand["layer_label"].to_numpy()
+    w = inv_weight(d_combo, labels=labels, certainty_weights=certainty_weights)
+
+    weights_by_label = {}
+    for lab, wi in zip(labels, w):
+        weights_by_label[lab] = weights_by_label.get(lab, 0.0) + float(wi)
+
+    sorted_labels = sorted(weights_by_label.items(), key=lambda x: x[1], reverse=True)
+
+    best_label, best_weight = sorted_labels[0]
+    second_label, second_weight = (None, 0.0)
+    if len(sorted_labels) > 1:
+        second_label, second_weight = sorted_labels[1]
+
+    return {
+        "best_label": best_label,
+        "best_weight": best_weight,
+        "second_label": second_label,
+        "second_weight": second_weight,
+        "weights_by_label": weights_by_label,
+    }
+
+# =============================================================================
+# 8. LOOCV-BASED HYPERPARAMETER TUNING
+# =============================================================================
+
+def tune_hyperparams_loocv(
+    train_with_tiles,
+    feat_cols,
+    model_type="row",
+    k_list=(1, 3, 5, 7, 9),
+    tau_list=(1.0, 5.0, 10.0, 15.0, 20.0),
+    alpha_list=(0, 0.5, 1.0, 1.5, 2.0, 2.5),
+    beta_list=(0, 0.5, 1.0, 1.5, 2.0, 2.5),
+    min_thickness=0.5,
+    certainty_weights=None,
+):
+    results = []
 
     for k in k_list:
         for tau in tau_list:
             for alpha in alpha_list:
                 for beta in beta_list:
+                    total_correct = 0
+                    total_n = 0
 
-                    preds = test_set.apply(
-                        lambda r: predict_label_hybrid(
-                            r,
-                            feat_train = feat_train,
-                            z_scores_train = z_scores_train,
-                            feat_cols = feat_cols, mu = mu, sd = sd,
-                            k = k, tau = tau, alpha = alpha, beta = beta,
-                            x_sd = x_sd, y_sd = y_sd,
-                            certainty_weights = certainty_weights
-                        ),
-                        axis = 1
+                    for t, train_df, test_df, X_tr, X_te, y_tr, y_te in loo_cv(
+                        train_with_tiles,
+                        label_col="layer_label",
+                        cpt_col="sondeernummer",
+                    ):
+                        if len(train_df) == 0 or len(test_df) == 0:
+                            continue
+
+                        train = train_df.copy()
+                        test = test_df.copy()
+
+                        for df_ in (feat_train, feat_test, train_with_tiles, feat_train_json, feat_test_json):
+                            df_["rf_mean"] = 100.0 * (df_["fs_mean"] / (df_["qc_mean"] + eps))
+                            df_["log_qc_mean"] = np.log(np.maximum(df_["qc_mean"], eps))
+                            df_["log_rf_mean"] = np.log(np.maximum(df_["rf_mean"], eps))
+
+                        train_f = train[train["thickness"] >= min_thickness].copy()
+                        mu_fold = train_f[feat_cols].mean(numeric_only=True)
+                        sd_fold = train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
+
+                        z_scores_train_fold = ((train[feat_cols].fillna(mu_fold)) - mu_fold) / sd_fold
+
+                        x_sd_fold = float(train["x"].std(ddof=1)) or 1.0
+                        y_sd_fold = float(train["y"].std(ddof=1)) or 1.0
+
+                        if model_type == "row":
+                            preds_dict = test.apply(
+                                lambda r: predict_label_hybrid_row(
+                                    r,
+                                    feat_train=train,
+                                    z_scores_train=z_scores_train_fold,
+                                    feat_cols=feat_cols,
+                                    mu=mu_fold,
+                                    sd=sd_fold,
+                                    k=k,
+                                    tau=tau,
+                                    alpha=alpha,
+                                    beta=beta,
+                                    x_sd=x_sd_fold,
+                                    y_sd=y_sd_fold,
+                                    certainty_weights=certainty_weights,
+                                ),
+                                axis=1,
+                            )
+                        elif model_type == "cpt":
+                            preds_dict = test.apply(
+                                lambda r: predict_label_hybrid_cpt(
+                                    r,
+                                    feat_train=train,
+                                    z_scores_train=z_scores_train_fold,
+                                    feat_cols=feat_cols,
+                                    mu=mu_fold,
+                                    sd=sd_fold,
+                                    k_cpt=k,
+                                    tau=tau,
+                                    alpha=alpha,
+                                    beta=beta,
+                                    x_sd=x_sd_fold,
+                                    y_sd=y_sd_fold,
+                                    certainty_weights=certainty_weights,
+                                ),
+                                axis=1,
+                            )
+                        else:
+                            raise ValueError(f"Unknown model_type {model_type!r}")
+
+                        test["pred_label1"] = preds_dict.apply(lambda d: d["best_label"])
+
+                        seen_labels_fold = set(train["layer_label"])
+                        mask_seen_fold = test["layer_label"].isin(seen_labels_fold)
+
+                        n_seen = int(mask_seen_fold.sum())
+                        if n_seen == 0:
+                            continue
+
+                        correct = int(
+                            (test.loc[mask_seen_fold, "pred_label1"] ==
+                             test.loc[mask_seen_fold, "layer_label"]).sum()
+                        )
+
+                        total_correct += correct
+                        total_n += n_seen
+
+                    if total_n == 0:
+                        mean_acc = np.nan
+                    else:
+                        mean_acc = total_correct / total_n
+
+                    results.append(
+                        {
+                            "model_type": model_type,
+                            "k": k,
+                            "tau": tau,
+                            "alpha": alpha,
+                            "beta": beta,
+                            "loocv_acc": mean_acc,
+                        }
                     )
 
-                    # extract best label from dict
-                    pred_labels = preds.apply(lambda d: d["best_label"])
+                    print(
+                        f"LOOCV {model_type}: k={k}, tau={tau}, alpha={alpha}, beta={beta}, "
+                        f"acc={mean_acc:.3f}" if not np.isnan(mean_acc) else
+                        f"LOOCV {model_type}: k={k}, tau={tau}, alpha={alpha}, beta={beta}, acc=nan"
+                    )
 
-                    acc = (pred_labels == test_set["layer_label"]).mean()
+    res_df = pd.DataFrame(results)
+    res_df = res_df.sort_values("loocv_acc", ascending=False).reset_index(drop=True)
+    return res_df
 
-                    rows.append(("hybrid_row_based", k, tau, alpha, beta, acc))
-
-    return (
-        pd.DataFrame(rows, columns = ["model","k","tau","alpha","beta","acc"])
-        .sort_values("acc", ascending = False)
-        .reset_index(drop=True)
+if MODEL_SELECTION_MODE:
+    print("Starting LOOCV hyperparameter tuning for hybrid ROW-based model")
+    loocv_row_results = tune_hyperparams_loocv(
+        train_with_tiles=train_with_tiles,
+        feat_cols=feat_cols,
+        model_type="row",
+        k_list=(2, 3, 4),
+        tau_list=(10.0, 20.0, 30.0),
+        alpha_list=(1.0, 2.5, 4.0),
+        beta_list=(1.0, 2.0, 3.0),
+        min_thickness=0.5,
+        certainty_weights=certainty_weight,
     )
 
-x_sd = float(feat_train["x"].std(ddof = 1)) or 1.0
-y_sd = float(feat_train["y"].std(ddof = 1)) or 1.0
+    print("Top 5 LOOCV configs for ROW-based hybrid model:")
+    print(loocv_row_results.head(5).to_string(index=False))
 
-print("Hybrid row evaluation")
-print(eval_hybrid_row_pred(
-        feat_train = feat_train,
-        feat_test = feat_test,
-        z_scores_train = z_scores_train,
-        feat_cols = feat_cols, mu = mu, sd = sd,
-        k_list = (2,4,6,8),
-        tau_list = (2.0,5.0,8.0,11.0),
-        alpha_list = (0.0,1.0,2.0),
-        beta_list = (0.0,1.0,2.0),
-        x_sd = x_sd, y_sd = y_sd, 
-        certainty_weights = certainty_weight
-    ).to_string(index = False)
-)
-
-# evaluation for hybrid-row-based spatial model with k = 5, tau = 3.0
-feat_test = feat_test.copy()
-
-feat_test["pred_hybrid"] = feat_test.apply(
-    lambda r: predict_label_hybrid(
-        r,
-        feat_train = feat_train,
-        z_scores_train = z_scores_train,
-        feat_cols = feat_cols, mu = mu, sd = sd,
-        k = 4, tau = 20.0,
-        alpha = 1.0, beta = 1.0,
-        x_sd = x_sd, y_sd = y_sd,
-        certainty_weights = certainty_weight
-    ),
-    axis = 1
-)
-
-# unpack into readable columns
-feat_test["pred_label1"] = feat_test["pred_hybrid"].apply(lambda d: d["best_label"])
-feat_test["pred_w1"]     = feat_test["pred_hybrid"].apply(lambda d: d["best_weight"])
-feat_test["pred_label2"] = feat_test["pred_hybrid"].apply(lambda d: d["second_label"])
-feat_test["pred_w2"]     = feat_test["pred_hybrid"].apply(lambda d: d["second_weight"])
-
-# accuracy only labels present in train
-mask_seen = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
-if mask_seen.any():
-    acc = (feat_test.loc[mask_seen, "pred_label1"] == feat_test.loc[mask_seen, "layer_label"]).mean()
-    print(f"Hybrid kNN (k = 5, tau = 2m, alpha = 1, beta = 1) accuracy on seen-label subset: {acc:.3f}")
-else:
-    print("None of the test labels are present in train.")
-
-# unseen labels
-unseen_counts = feat_test.loc[~mask_seen, "layer_label"].value_counts()
-if len(unseen_counts):
-    print("Test labels unseen in TRAIN (not predictable):")
-    print(unseen_counts.to_string())
-
-# per-label accuracy used for model assessment/improvement
-
-per_class_acc = (
-    (feat_test.loc[mask_seen, "pred_label1"] == feat_test.loc[mask_seen, "layer_label"])
-    .groupby(feat_test.loc[mask_seen, "layer_label"]).mean()
-    .rename("acc")
-)
-support = feat_test.loc[mask_seen, "layer_label"].value_counts().rename("n")
-print("per-label (top 10 by support):")
-print(pd.concat([per_class_acc, support], axis = 1).sort_values("n", ascending = False).head(10).to_string())
-
-#%%
-
-loocv_k = 3
-loocv_tau = 20.0
-loocv_alpha = 1.0
-loocv_beta = 1.0
-loocv_min_thickness = 0.5
-
-loocv_results = []
-
-for t, train_df, test_df, X_tr, X_te, y_tr, y_te in loo_cv(
-    feat_with_tiles,
-    label_col="layer_label",
-    cpt_col="sondeernummer",
-):
-    if len(train_df) == 0 or len(test_df) == 0:
-        continue
-
-    train = train_df.copy()
-    test = test_df.copy()
-
-    # recompute rf & logs
-    for df_ in (train, test):
-        df_["rf_mean"] = 100.0 * (df_["fs_mean"] / (df_["qc_mean"] + eps))
-        df_["log_qc_mean"] = np.log(np.maximum(df_["qc_mean"], eps))
-        df_["log_rf_mean"] = np.log(np.maximum(df_["rf_mean"], eps))
-
-    # standardisation
-    train_f = train[train["thickness"] >= loocv_min_thickness].copy()
-    mu_fold = train_f[feat_cols].mean(numeric_only=True)
-    sd_fold = train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
-
-    z_scores_train_fold = ((train[feat_cols].fillna(mu_fold)) - mu_fold) / sd_fold
-
-    # spatial scales
-    x_sd_fold = float(train["x"].std(ddof=1)) or 1.0
-    y_sd_fold = float(train["y"].std(ddof=1)) or 1.0
-
-    # apply hybrid model
-    preds = test.apply(
-        lambda r: predict_label_hybrid(
-            r,
-            feat_train=train,
-            z_scores_train=z_scores_train_fold,
-            feat_cols=feat_cols, mu=mu_fold, sd=sd_fold,
-            k=loocv_k, tau=loocv_tau,
-            alpha=loocv_alpha, beta=loocv_beta,
-            x_sd=x_sd_fold, y_sd=y_sd_fold,
-            certainty_weights=certainty_weight,
-        ),
-        axis=1
+    print("Starting LOOCV hyperparameter tuning for hybrid CPT-based model")
+    loocv_cpt_results = tune_hyperparams_loocv(
+        train_with_tiles=train_with_tiles,
+        feat_cols=feat_cols,
+        model_type="cpt",
+        k_list=(2, 3, 4),
+        tau_list=(10.0, 20.0, 30.0),
+        alpha_list=(1.0, 2.5, 4.0),
+        beta_list=(1.0, 2.0, 3.0),
+        min_thickness=0.5,
+        certainty_weights=certainty_weight,
     )
 
-    # unpack dict → separate columns
-    test["pred_label1"] = preds.apply(lambda d: d["best_label"])
-    test["pred_w1"]     = preds.apply(lambda d: d["best_weight"])
-    test["pred_label2"] = preds.apply(lambda d: d["second_label"])
-    test["pred_w2"]     = preds.apply(lambda d: d["second_weight"])
+    print("Top 5 LOOCV configs for CPT-based hybrid model:")
+    print(loocv_cpt_results.head(5).to_string(index=False))
 
-    # accuracy only for labels seen in train fold
-    seen_labels_fold = set(train["layer_label"])
-    mask_seen_fold = test["layer_label"].isin(seen_labels_fold)
+    best_row = loocv_row_results.iloc[0]
+    best_cpt = loocv_cpt_results.iloc[0]
 
-    if mask_seen_fold.any():
-        acc_seen = (
-            test.loc[mask_seen_fold, "pred_label1"]
-            == test.loc[mask_seen_fold, "layer_label"]
-        ).mean()
+    print("\nBest ROW-based config from LOOCV:")
+    print(best_row)
+
+    print("\nBest CPT-based config from LOOCV:")
+    print(best_cpt)
+
+    if best_row["loocv_acc"] >= best_cpt["loocv_acc"]:
+        chosen_model_type = "row"
+        chosen_params = best_row
     else:
-        acc_seen = np.nan
+        chosen_model_type = "cpt"
+        chosen_params = best_cpt
 
-    loocv_results.append(
-        {
-            "tile": t,
-            "n_train": len(train),
-            "n_test": len(test),
-            "acc_seen_labels": acc_seen,
-        }
-    )
+    print(f"\nChosen model type based on LOOCV: {chosen_model_type}")
+    print("Chosen parameters:")
+    print(chosen_params)
+else:
+    # Use manually specified final model
+    chosen_model_type = FINAL_MODEL_TYPE
+    chosen_params = FINAL_PARAMS
 
-loocv_results_df = pd.DataFrame(loocv_results)
-print_loocv(
-    loocv_results_df,
-    acc_col="acc_seen_labels",
-    model_name="Hybrid kNN (seen labels)",
-)
-
-# %%
-
-cpt_id = "D04"
-df_cpt = feat_test[feat_test["sondeernummer"] == cpt_id].copy()
-
-# sort top→bottom using mtaw (higher = shallower)
-df_cpt = df_cpt.sort_values("mean_depth_mtaw", ascending=False)
-
-inspect_cols = df_cpt[[
-    "mean_depth_mtaw",
-    "layer_label",       # true
-    "pred_label1",
-    "pred_w1",
-    "pred_label2",
-    "pred_w2"
-]]
-
-print(inspect_cols.to_string(index=False))
-
-#%%
-
-drill_lengths = (
-    feat_all.groupby("sondeernummer")["thickness"]
-           .sum()
-           .sort_values(ascending=False)
-)
-
-longest_cpt = drill_lengths.index[0]
-chosen_cpt = longest_cpt
-print("Chosen CPT:", chosen_cpt)
-
-def get_depth_series_for_cpt(feat_df, label_column, cpt_id):
-    """
-    Creates a depth-wise dataframe for plotting.
-    Assumes label_column contains a string label (not dict).
-    """
-    sub = (
-        feat_df[feat_df["sondeernummer"] == cpt_id]
-        .sort_values("mean_depth_mtaw", ascending=False)  # shallow→deep
-        .copy()
-    )
-
-    depths = []
-    labels = []
-
-    for _, r in sub.iterrows():
-        d1 = r["start_depth_mtaw"]
-        d2 = r["end_depth_mtaw"]
-        lab = r[label_column]   # string label (true or predicted)
-        depths.extend([d1, d2])
-        labels.extend([lab, lab])
-
-    return pd.DataFrame({"depth": depths, "label": labels})
-
-def get_label_colors(all_labels):
-    unique_labs = sorted(list(set(all_labels)))
-    cmap = plt.get_cmap("tab20")
-    color_map = {lab: cmap(i % 20) for i, lab in enumerate(unique_labs)}
-    return color_map
-
-def plot_stratigraphy(depth_df, color_map, title):
-    plt.figure(figsize=(5, 8))
-    x = np.zeros(len(depth_df))  # vertical line
-
-    for lab in depth_df["label"].unique():
-        mask = depth_df["label"] == lab
-        plt.plot(
-            x[mask],
-            depth_df["depth"][mask],
-            color=color_map[lab],
-            linewidth=6,
-            label=str(lab),
+    # sanity checks
+    required_keys = {"k", "tau", "alpha", "beta"}
+    if not required_keys.issubset(chosen_params.keys()):
+        raise ValueError(
+            f"FINAL_PARAMS must contain keys {required_keys}, got {set(chosen_params.keys())}"
         )
 
-    plt.xlabel("Layer")
-    plt.ylabel("Depth (mTAW)")
-    plt.title(title)
+    print("\nSkipping LOOCV — using FINAL_MODEL_TYPE and FINAL_PARAMS:")
+    print("chosen_model_type:", chosen_model_type)
+    print("chosen_params:", chosen_params)
 
-    # sort legend by geological order
-    handles, labels = plt.gca().get_legend_handles_labels()
+# ============================================================================
+#  9. LOOCV SENSITIVITY: NUMBER OF FEATURES (ROW & CPT HYBRID)
+# ============================================================================
 
-    order_map = {lab: i for i, lab in enumerate(segment_order)}
-    pairs = [(h, lab) for h, lab in zip(handles, labels) if lab in order_map]
+# def loocv_feature_count_sensitivity(
+#     train_with_tiles,
+#     selected_feat_cols,
+#     model_type="row",
+#     N_list=(5, 10, 15, 20),
+#     k_list=(5, 7, 9),
+#     tau_list=(5.0, 10.0),
+#     alpha_list=(0.5, 1.0, 2.0),
+#     beta_list=(0.5, 1.0, 2.0),
+#     min_thickness=0.5,
+#     certainty_weights=None,
+# ):
+#     """
+#     For each N in N_list:
+#       - use the first N features from selected_feat_cols
+#       - run LOOCV tuning over (k, tau, alpha, beta)
+#       - record best LOOCV accuracy and corresponding hyperparams
+#     """
+#     results = []
 
-    pairs_sorted = sorted(pairs, key=lambda x: order_map[x[1]])
+#     for N in N_list:
+#         feats_N = selected_feat_cols[:N]
+#         print(f"\n=== LOOCV for model={model_type}, N_features={N} ===")
+#         print("Features:", feats_N)
 
-    handles_sorted, labels_sorted = zip(*pairs_sorted)
+#         loocv_res = tune_hyperparams_loocv(
+#             train_with_tiles=train_with_tiles,
+#             feat_cols=feats_N,
+#             model_type=model_type,
+#             k_list=k_list,
+#             tau_list=tau_list,
+#             alpha_list=alpha_list,
+#             beta_list=beta_list,
+#             min_thickness=min_thickness,
+#             certainty_weights=certainty_weights,
+#         )
 
-    plt.legend(handles_sorted, labels_sorted, bbox_to_anchor=(1.05, 1), loc="upper left")
+#         # best config for this N
+#         best_idx = loocv_res["loocv_acc"].idxmax()
+#         best_row = loocv_res.loc[best_idx].copy()
+#         best_row["N_features"] = N
+#         best_row["feature_list"] = feats_N
+#         results.append(best_row)
 
-    plt.tight_layout()
-    plt.show()
+#         print("Best for N =", N)
+#         print(best_row)
 
-# 1) get true and predicted dataframe for the CPT
-true_df = get_depth_series_for_cpt(feat_test, "layer_label", chosen_cpt)
-pred_df = get_depth_series_for_cpt(feat_test, "pred_label1", chosen_cpt)
+#     results_df = pd.DataFrame(results).sort_values("loocv_acc", ascending=False).reset_index(drop=True)
+#     return results_df
 
-# 2) build unified color map so both plots share same colours
-all_labs = list(true_df["label"].unique()) + list(pred_df["label"].unique())
-color_map = get_label_colors(all_labs)
 
-# 3) plot
-plot_stratigraphy(true_df, color_map, f"CPT {chosen_cpt} - TRUE stratigraphy")
-plot_stratigraphy(pred_df, color_map, f"CPT {chosen_cpt} - PREDICTED (Hybrid model)")
+# # run for ROW-based model
+# N_list = (5, 10, 15, 20)   # TODO: think about smaller steps
 
-#%%
+# print("\n>>> LOOCV sensitivity (ROW-based hybrid) vs number of features <<<")
+# row_feat_sensitivity = loocv_feature_count_sensitivity(
+#     train_with_tiles=train_with_tiles,
+#     selected_feat_cols=selected_feat_cols,
+#     model_type="row",
+#     N_list=N_list,
+#     k_list=(5, 7, 9),
+#     tau_list=(5.0, 10.0),
+#     alpha_list=(0.5, 1.0, 2.0),
+#     beta_list=(0.5, 1.0, 2.0),
+#     min_thickness=0.5,
+#     certainty_weights=certainty_weight,
+# )
+
+# print("\nROW-based: best configs by LOOCV accuracy (different N):")
+# print(row_feat_sensitivity.to_string(index=False))
+
+# # run for CPT-based model
+# print("\n>>> LOOCV sensitivity (CPT-based hybrid) vs number of features <<<")
+# cpt_feat_sensitivity = loocv_feature_count_sensitivity(
+#     train_with_tiles=train_with_tiles,
+#     selected_feat_cols=selected_feat_cols,
+#     model_type="cpt",
+#     N_list=N_list,
+#     k_list=(5, 7, 9),
+#     tau_list=(5.0, 10.0),
+#     alpha_list=(0.5, 1.0, 2.0),
+#     beta_list=(0.5, 1.0, 2.0),
+#     min_thickness=0.5,
+#     certainty_weights=certainty_weight,
+# )
+
+# print("\nCPT-based: best configs by LOOCV accuracy (different N):")
+# print(cpt_feat_sensitivity.to_string(index=False))
+
+# =============================================================================
+# 10. FIT CHOSEN MODEL ON TILE-BASED TRAIN AND EVALUATE ON TILE-BASED TEST
+# =============================================================================
+
+train_f = feat_train[feat_train["thickness"] >= min_thickness_for_stats].copy()
+mu_final = train_f[feat_cols].mean(numeric_only=True)
+sd_final = train_f[feat_cols].std(ddof=1, numeric_only=True).replace(0, 1.0)
+
+z_scores_train_final = ((feat_train[feat_cols].fillna(mu_final)) - mu_final) / sd_final
+z_scores_test_final = ((feat_test[feat_cols].fillna(mu_final)) - mu_final) / sd_final
+
+x_sd_final = float(feat_train["x"].std(ddof=1)) or 1.0
+y_sd_final = float(feat_train["y"].std(ddof=1)) or 1.0
+
+feat_test = feat_test.copy()
+
+if chosen_model_type == "row":
+    preds_final = feat_test.apply(
+        lambda r: predict_label_hybrid_row(
+            r,
+            feat_train=feat_train,
+            z_scores_train=z_scores_train_final,
+            feat_cols=feat_cols,
+            mu=mu_final,
+            sd=sd_final,
+            k=int(chosen_params["k"]),
+            tau=float(chosen_params["tau"]),
+            alpha=float(chosen_params["alpha"]),
+            beta=float(chosen_params["beta"]),
+            x_sd=x_sd_final,
+            y_sd=y_sd_final,
+            certainty_weights=certainty_weight,
+        ),
+        axis=1,
+    )
+elif chosen_model_type == "cpt":
+    preds_final = feat_test.apply(
+        lambda r: predict_label_hybrid_cpt(
+            r,
+            feat_train=feat_train,
+            z_scores_train=z_scores_train_final,
+            feat_cols=feat_cols,
+            mu=mu_final,
+            sd=sd_final,
+            k_cpt=int(chosen_params["k"]),
+            tau=float(chosen_params["tau"]),
+            alpha=float(chosen_params["alpha"]),
+            beta=float(chosen_params["beta"]),
+            x_sd=x_sd_final,
+            y_sd=y_sd_final,
+            certainty_weights=certainty_weight,
+        ),
+        axis=1,
+    )
+else:
+    raise ValueError(f"Unexpected chosen_model_type {chosen_model_type!r}")
+
+feat_test["pred_hybrid"] = preds_final
+feat_test["pred_label1"] = feat_test["pred_hybrid"].apply(lambda d: d["best_label"])
+feat_test["pred_w1"] = feat_test["pred_hybrid"].apply(lambda d: d["best_weight"])
+feat_test["pred_label2"] = feat_test["pred_hybrid"].apply(lambda d: d["second_label"])
+feat_test["pred_w2"] = feat_test["pred_hybrid"].apply(lambda d: d["second_weight"])
+
+mask_seen_final = feat_test["layer_label"].isin(set(feat_train["layer_label"]))
+
+if mask_seen_final.any():
+    acc_final = (
+        feat_test.loc[mask_seen_final, "pred_label1"]
+        == feat_test.loc[mask_seen_final, "layer_label"]
+    ).mean()
+    print(f"\nAccuracy on TILE TEST (before post-processing, chosen model): {acc_final:.3f}")
+else:
+    print("No overlapping labels between train and test for final evaluation")
+
+per_class_acc_final = (
+    (feat_test.loc[mask_seen_final, "pred_label1"] ==
+     feat_test.loc[mask_seen_final, "layer_label"])
+    .groupby(feat_test.loc[mask_seen_final, "layer_label"])
+    .mean()
+    .rename("acc")
+)
+support_final = feat_test.loc[mask_seen_final, "layer_label"].value_counts().rename("n")
+
+print("\nPer-label accuracy before post-processing (chosen model):")
+print(pd.concat([per_class_acc_final, support_final], axis=1).sort_values("n", ascending=False))
+
+# =============================================================================
+# COMPARE ACCURACY AMONG MODELS USING JSON FILE SPLIT
+# ============================================================================
+
+feat_test_json_eval = feat_test_json.copy()
+
+# reuse same scaling from tile-train:
+if chosen_model_type == "row":
+    preds_json = feat_test_json_eval.apply(
+        lambda r: predict_label_hybrid_row(
+            r,
+            feat_train=feat_train,  # still train on tile-based set
+            z_scores_train=z_scores_train_final,
+            feat_cols=feat_cols,
+            mu=mu_final,
+            sd=sd_final,
+            k=int(chosen_params["k"]),
+            tau=float(chosen_params["tau"]),
+            alpha=float(chosen_params["alpha"]),
+            beta=float(chosen_params["beta"]),
+            x_sd=x_sd_final,
+            y_sd=y_sd_final,
+            certainty_weights=certainty_weight,
+        ),
+        axis=1,
+    )
+else:
+    preds_json = feat_test_json_eval.apply(
+        lambda r: predict_label_hybrid_cpt(
+            r,
+            feat_train=feat_train,
+            z_scores_train=z_scores_train_final,
+            feat_cols=feat_cols,
+            mu=mu_final,
+            sd=sd_final,
+            k_cpt=int(chosen_params["k"]),
+            tau=float(chosen_params["tau"]),
+            alpha=float(chosen_params["alpha"]),
+            beta=float(chosen_params["beta"]),
+            x_sd=x_sd_final,
+            y_sd=y_sd_final,
+            certainty_weights=certainty_weight,
+        ),
+        axis=1,
+    )
+
+feat_test_json_eval["pred_label1"] = preds_json.apply(lambda d: d["best_label"])
+
+mask_seen_json = feat_test_json_eval["layer_label"].isin(set(feat_train["layer_label"]))
+acc_json = (
+    feat_test_json_eval.loc[mask_seen_json, "pred_label1"]
+    == feat_test_json_eval.loc[mask_seen_json, "layer_label"]
+).mean()
+print(f"\nAccuracy on JSON TEST (tile-trained model, before post-processing): {acc_json:.3f}")
+
+# =============================================================================
+# 11. POST-PROCESSING: Enforcing segment order
+# =============================================================================
+
 order_index = {lab: i for i, lab in enumerate(segment_order)}
+
+def is_allowed_label(candidate, prev):
+    """
+    Only enforce stratigraphic order:
+
+    - If there is no previous label (topmost), anything is allowed.
+    - Otherwise, the new label's index must be >= the previous label's index
+      in segment_order (no upwards jump).
+    """
+    if candidate is None:
+        return False
+    if prev is None:
+        return True
+    # enforce monotone non-decreasing order
+    return order_index[candidate] >= order_index[prev]
+
 
 def postprocess_cpt(group):
     """
-    Input: rows of ONE CPT already containing:
-        pred_label1, pred_label2, mean_depth_mtaw
-    Output: corrected labels + count of corrections
+    Enforce only segment order along a CPT:
+    - sort by mean_depth_mtaw (top to bottom; currently descending),
+    - try best prediction, else second, else fall back to previous label
+      (or best if there is no previous).
     """
     g = group.sort_values("mean_depth_mtaw", ascending=False).copy()
+
     corrected = []
-    seen = set()
+    prev = None
     changes = 0
 
-    for i, row in g.iterrows():
+    for _, row in g.iterrows():
         best = row["pred_label1"]
         second = row["pred_label2"]
 
-        prev = corrected[-1] if corrected else None
-        best_ok = True
-
-        # order violation?
-        if prev is not None:
-            if order_index[best] < order_index[prev]:
-                best_ok = False
-
-        # duplicate?
-        if best in seen:
-            best_ok = False
-
-        if best_ok:
-            corrected.append(best)
-            seen.add(best)
+        if is_allowed_label(best, prev):
+            chosen = best
+            used_second = False
+        elif is_allowed_label(second, prev):
+            chosen = second
+            used_second = True
         else:
-            # try second choice only if available and logical
-            if (
-                second is not None
-                and second not in seen
-                and order_index[second] >= (order_index[prev] if prev else -999)
-            ):
-                corrected.append(second)
-                seen.add(second)
-                changes += 1
+            # if neither best nor second respects order, keep previous label if possible
+            if prev is not None:
+                chosen = prev
+                used_second = False
             else:
-                corrected.append(best)  # fallback: keep prediction
-                seen.add(best)
-                # only count as correction if the second choice was applied
-                if second is not None:
-                    changes += 1
+                # at the very top we have to pick something; accept best even if order_index issue
+                chosen = best
+                used_second = False
+
+        if (chosen != best) or used_second:
+            changes += 1
+
+        corrected.append(chosen)
+        prev = chosen
 
     return corrected, changes
 
 
 def apply_postprocessing(feat_df):
-    """
-    Adds pred_hybrid_corrected column and returns number of corrected rows.
-    """
     df = feat_df.copy()
     total_changes = 0
 
     for cpt, group in df.groupby("sondeernummer"):
         corrected_list, changes = postprocess_cpt(group)
-        df.loc[group.sort_values("mean_depth_mtaw", ascending=False).index,
-               "pred_hybrid_corrected"] = corrected_list
+        df.loc[
+            group.sort_values("mean_depth_mtaw", ascending=False).index,
+            "pred_hybrid_corrected",
+        ] = corrected_list
         total_changes += changes
 
     return df, total_changes
 
+
 feat_test_corrected, n_corrected = apply_postprocessing(feat_test)
-print(f"Number of corrected rows: {n_corrected}")
+print(f"\nNumber of corrected rows: {n_corrected}")
 
-mask_seen = feat_test_corrected["layer_label"].isin(set(feat_train["layer_label"]))
+mask_seen_corr = feat_test_corrected["layer_label"].isin(set(feat_train["layer_label"]))
 
-final_acc = (feat_test_corrected.loc[mask_seen, "pred_hybrid_corrected"]
-             == feat_test_corrected.loc[mask_seen, "layer_label"]).mean()
+final_acc_corr = (
+    feat_test_corrected.loc[mask_seen_corr, "pred_hybrid_corrected"]
+    == feat_test_corrected.loc[mask_seen_corr, "layer_label"]
+).mean()
+print(f"FINAL post-processed accuracy on TILE TEST (chosen model): {final_acc_corr:.3f}")
 
-print(f"FINAL post-processed accuracy: {final_acc:.3f}")
+# =============================================================================
+# Spatial Leakage Eval: No need to re-run
+# =============================================================================
 
-# per-label accuracy
-per_class = (
-    (feat_test_corrected.loc[mask_seen, "pred_hybrid_corrected"]
-     == feat_test_corrected.loc[mask_seen, "layer_label"])
-    .groupby(feat_test_corrected.loc[mask_seen, "layer_label"]).mean()
-    .rename("acc")
-)
+def tile_leakage_summary(feat_train, feat_test):
+    tiles_train = set(feat_train["tile"].unique())
+    tiles_test = set(feat_test["tile"].unique())
+    overlap_tiles = tiles_train & tiles_test
 
-support = feat_test_corrected.loc[mask_seen, "layer_label"].value_counts().rename("n")
+    frac_test_in_overlap_tiles = feat_test["tile"].isin(overlap_tiles).mean()
 
-print("\nPer-Label accuracy (hybrid model corrected):")
-print(pd.concat([per_class, support], axis=1).sort_values("n", ascending=False))
+    print("Train tiles:", sorted(tiles_train))
+    print("Test tiles:", sorted(tiles_test))
+    print("Overlapping tiles:", sorted(overlap_tiles))
+    print(f"Fraction of TEST rows in overlapping tiles: {frac_test_in_overlap_tiles:.3f}")
 
-#%%
-cpt_id = "D04"
-
-df_d04 = feat_test_corrected[feat_test_corrected["sondeernummer"] == cpt_id].copy()
-
-df_d04 = df_d04.sort_values("mean_depth_mtaw", ascending=False)
-
-inspect_cols = df_d04[[
-    "mean_depth_mtaw",
-    "layer_label",              # true label
-    "pred_label1",              # original model prediction
-    "pred_hybrid_corrected"     # after post-processing
-]]
-
-print(inspect_cols.to_string(index=False))
-
-# %%
-# used to assess, why in the inital model, change in alpha and beta did not change the acc
-# then, spatial scaling was introduced
-# r = feat_test.iloc[0]
-# x0, y0 = r["x"], r["y"]
-
-# dx = feat_train["x"] - x0
-# dy = feat_train["y"] - y0
-# d_spatial = np.hypot(dx, dy)
-
-# row_vals = r.reindex(feat_cols).to_numpy(dtype = float)
-# row_vec  = (row_vals - mu.to_numpy()) / sd.to_numpy()
-# train_mat = ((feat_train[feat_cols] - mu) / sd).to_numpy()
-# d_feat = np.linalg.norm(train_mat - row_vec, axis = 1)
-
-# print("mean spatial distance:", np.mean(d_spatial))
-# print("mean feature distance:", np.mean(d_feat))
-# print("ratio spatial/feature:", np.mean(d_spatial)/np.mean(d_feat))
-
-# res = eval_hybrid_row_pred(
-#     feat_train, feat_test, z_scores_train,
-#     feat_cols, mu, sd,
-#     k_list = (3,5,7,10),
-#     tau_list = (1.0,2.0,3.0,5.0),
-#     alpha_list = (0.5,1.0,2.0),
-#     beta_list = (0.5,1.0,2.0),
-#     x_sd = x_sd, y_sd = y_sd
-# )
-# print("rows:", len(res))
-# print(res.groupby(["tau","k"]).size())
-
-# r = feat_test.iloc[0]
-# dx = (feat_train["x"].to_numpy(float) - float(r["x"])) / x_sd
-# dy = (feat_train["y"].to_numpy(float) - float(r["y"])) / y_sd
-# d_spatial_scaled = np.hypot(dx, dy)
-
-# row_vals = r.reindex(feat_cols).to_numpy(float, copy = False)
-# row_vec  = (row_vals - mu.to_numpy(float)) / sd.to_numpy(float)
-# train_mat = ((feat_train[feat_cols] - mu)/sd).to_numpy(float)
-
-# d_feat = np.linalg.norm(train_mat - row_vec, axis = 1)
-# print("mean d_spatial_scaled:", d_spatial_scaled.mean())
-# print("mean d_feat:", d_feat.mean())
-
-# neighbours should stay constant for varying params check
-# def neighbor_ids(row, alpha, beta, k=5, tau=1.0):
-#     x0, y0 = float(row["x"]), float(row["y"])
-#     dx = (feat_train["x"].to_numpy(float)-x0)/x_sd
-#     dy = (feat_train["y"].to_numpy(float)-y0)/y_sd
-#     d_spatial = np.hypot(dx, dy)
-
-#     mean_mtaw_q = float(row["mean_depth_mtaw"])
-#     elev_diff = np.abs(feat_train["mean_depth_mtaw"].to_numpy(float) - mean_mtaw_q)
-#     mask = elev_diff <= tau
-#     if not np.any(mask):
-#         k_elev = min(k, len(feat_train))
-#         idx = np.argpartition(elev_diff, k_elev-1)[:k_elev]
-#         mask = np.zeros(len(feat_train), bool); mask[idx] = True
-
-#     row_vec = ((row.reindex(feat_cols).to_numpy(float) - mu.to_numpy(float)) / sd.to_numpy(float))
-#     train_mat = np.asarray(z_scores_train, float)[mask]
-#     d_feat = np.linalg.norm(train_mat - row_vec, axis=1)
-
-#     d = np.sqrt(alpha*(d_spatial[mask]**2) + beta*(d_feat**2))
-#     k_eff = min(k, len(d))
-#     nn_local = np.argpartition(d, k_eff-1)[:k_eff]
-#     return np.flatnonzero(mask)[nn_local]
-
-# row0 = feat_test.iloc[0]
-# for a,b in [(0.5,0.5),(1,1),(2,2)]:
-#     print((a,b), np.sort(neighbor_ids(row0, a, b)))
-
-# # fraction of test rows whose prediction varies across any α/β
-# stack = np.column_stack(list(preds.values()))
-# varies = (stack != stack[:, [0]]).any(axis=1).mean()
-# print("share of rows that change label across α/β:", varies)
-
-# %%
-
-# i got 99 plots
-
-def prepare_df(df):
-    plot_gdf = gpd.GeoDataFrame(
-        df.copy(),
-        geometry = gpd.points_from_xy(df["x"], df["y"]),
-        crs = "EPSG:31370"
-    )
-    return plot_gdf.to_crs(epsg = 3857)
-
-def fixed_window_size(bounds, pad_ratio = 0.08, min_span = 1500):
-    xmin, ymin, xmax, ymax = bounds # create window using bounds
-    dx, dy = xmax - xmin, ymax - ymin #width, height
-    # padding
-    pad_x, pad_y = dx * pad_ratio, dy * pad_ratio
-    xmin_, xmax_ = xmin - pad_x, xmax + pad_x
-    ymin_, ymax_ = ymin - pad_y, ymax + pad_y
-    # span
-    span_x = max(xmax_ - xmin_, min_span)
-    span_y = max(ymax_ - ymin_, min_span)
-    cx0, cy0 = (xmin_ + xmax_) / 2, (ymin_ + ymax_) / 2
-    return (cx0 - span_x/2, cy0 - span_y/2, cx0 + span_x/2, cy0 + span_y/2)
-
-def colourscale(gdf, feature, vmin = None, vmax = None):
-    if vmin is None:
-        vmin = gdf[feature].min() # use global minimum
-    if vmax is None:
-        vmax = gdf[feature].max() # use the global maximum
-    return vmin, vmax 
-
-def plot_feature_map(
-    df,
-    feature,
-    groupby = None, # grouping column
-    feature_label = None, # label for the colourbar
-    cmap = "viridis", # default colour scheme (intended for scales)
-    markersize = 50,
-    order_desc = True, # default: groups with most data points first
-    pad_ratio = 0.08,
-    min_span = 1500,
-    figsize = (9, 6), # in inches
-):
-    
-    g = prepare_df(df)
-
-    window_size = fixed_window_size(g.total_bounds, pad_ratio, min_span)
-
-    vmin, vmax = colourscale(g, feature)
-
-    if groupby:
-        counts = g[groupby].value_counts()
-        if order_desc:
-            keys = counts.index.tolist() # most data to fewest data
-        else:
-            keys = counts.sort_values(ascending = True).index.tolist() # fewest to most
-    else:
-        keys = [None] 
-
-    for k in keys:
-        # use subset for grouping, loop through groups
-        sub = g if k is None else g[g[groupby] == k]
-        if sub.empty:
-            continue
-
-        title = feature_label
-
-        if groupby and k is not None:
-            side_label = f"{feature}  |  {groupby} = {k} (n = {len(sub)})"
-        else:
-            side_label = feature
-
-        fig, ax = plt.subplots(figsize = figsize)
-        sub.plot(
-            column = feature,
-            cmap = cmap,
-            legend = True,
-            ax = ax,
-            markersize = markersize,
-            alpha = 0.95, edgecolor = "k", linewidth = 0.25,
-            vmin = vmin, vmax = vmax,
-            legend_kwds = {"label": side_label}
-        )
-
-        # fix window size
-        ax.set_xlim(window_size[0], window_size[2])
-        ax.set_ylim(window_size[1], window_size[3])
-
-        # add basemap
-        cx.add_basemap(
-            ax, source = cx.providers.CartoDB.Positron,
-            crs = g.crs, alpha = 1.0
-        )
-
-        # fix format, show plot
-        ax.set_title(title)
-        ax.set_axisbelow(True)
-        plt.tight_layout()
-        plt.show()
-
-cpt_idx = feat_all.groupby("sondeernummer")["start_depth_mtaw"].idxmin()
-cpt_df  = feat_all.loc[cpt_idx].copy()
-layers_df = feat_all.drop_duplicates(["sondeernummer", "layer_label"]).copy()
-
-cpt_df["start_depth_mtaw"].hist(bins=30)
-plt.title("Starting elevation (mtaw) – CPT-level")
-plt.xlabel("mtaw")
-plt.ylabel("count")
-plt.show()
-
-plot_feature_map(
-    cpt_df,
-    feature = "start_depth_mtaw",
-    feature_label = "Starting elevation (mtaw)"
-)
-
-plot_feature_map(
-    layers_df,
-    feature = "thickness",
-    groupby = "layer_label",
-    feature_label = "Layer thickness (m)"
-)
-
-plot_feature_map(
-    layers_df,
-    feature = "qc_mean",
-    groupby = "layer_label",
-    feature_label = "Cone resistance qc (MPa)"
-)
-
-layer_count = (
-    feat_all.groupby("sondeernummer")["layer_label"]
+    if "sondeernummer" in feat_test.columns:
+        cpt_counts_test = (
+            feat_test.groupby("tile")["sondeernummer"]
             .nunique()
-            .reset_index(name="n_layers")
-)
+            .sort_index()
+        )
+        print("\nTest CPT counts per tile:")
+        print(cpt_counts_test)
 
-# merge the count onto CPT points (one point per CPT)
-cpt_points = cpt_df[["sondeernummer", "x", "y"]].copy()
-df_layers = cpt_points.merge(layer_count, on="sondeernummer", how="left")
+    return {
+        "tiles_train": tiles_train,
+        "tiles_test": tiles_test,
+        "overlap_tiles": overlap_tiles,
+        "frac_test_in_overlap_tiles": frac_test_in_overlap_tiles,
+    }
 
-plot_feature_map(
-    df_layers,
-    feature = "n_layers",
-    feature_label = "Distinct layers per CPT (count)"
-)
 
-# %%
-# homogeneity per layer across all train CPTs
-# def layer_homogeneity_table(feat_train, layer_col="layer_label"):
-#     agg = (
-#         feat_train.groupby(layer_col).agg(
-#             qc_mean_std=("qc_mean", "std"),
-#             fs_mean_std=("fs_mean", "std"),
-#             qc_d_dz_mean_std=("qc_d_dz_mean", "std"),
-#             fs_d_dz_mean_std=("fs_d_dz_mean", "std"),
-#             thickness_std=("thickness", "std"),
-#             mean_depth_mtaw_std=("mean_depth_mtaw", "std"),
-#             n_layers=("sondeernummer", "size"),
-#             n_cpts=("sondeernummer", "nunique"),
-#         )
-#         .fillna(0.0)
-#     )
+def add_nearest_train_distance(feat_train, feat_test):
+    cpt_train = (
+        feat_train.groupby("sondeernummer")[["x", "y"]]
+        .first()
+        .reset_index()
+    )
+    cpt_test = (
+        feat_test.groupby("sondeernummer")[["x", "y"]]
+        .first()
+        .reset_index()
+    )
 
-#     # average of z-score sds
-#     std_cols = [
-#         "qc_mean_std", "fs_mean_std",
-#         "qc_d_dz_mean_std", "fs_d_dz_mean_std",
-#         "thickness_std", "mean_depth_mtaw_std"
-#     ]
-#     Z = (agg[std_cols] - agg[std_cols].mean()) / agg[std_cols].std(ddof=1).replace(0, 1)
-#     agg["homogeneity_score"] = Z.mean(axis=1)
+    train_xy = cpt_train[["x", "y"]].to_numpy(dtype=float)
+    test_xy = cpt_test[["x", "y"]].to_numpy(dtype=float)
 
-#     return agg.sort_values("homogeneity_score")
+    nn = NearestNeighbors(n_neighbors=1)
+    nn.fit(train_xy)
+    dists, indices = nn.kneighbors(test_xy)
 
-# homog_table = layer_homogeneity_table(feat_train)
-# print(homog_table.round(3).to_string())
+    cpt_test["dist_to_nearest_train"] = dists[:, 0]
+
+    print("Distance to nearest TRAIN CPT (test CPTs):")
+    print(cpt_test["dist_to_nearest_train"].describe())
+
+    for R in [100, 250, 500, 1000]:
+        frac = (cpt_test["dist_to_nearest_train"] <= R).mean()
+        print(f"Fraction of test CPTs within {R} units of a train CPT: {frac:.3f}")
+
+    return cpt_test
+
+
+def tile_coords(tile_id, Gx=5):
+    row = tile_id // Gx
+    col = tile_id % Gx
+    return row, col
+
+
+def tile_adjacent(t1, t2, Gx=5):
+    r1, c1 = tile_coords(t1, Gx)
+    r2, c2 = tile_coords(t2, Gx)
+    return max(abs(r1 - r2), abs(c1 - c2)) == 1  # 8-neighbourhood
+
+
+def adjacency_leakage(feat_train, feat_test, Gx=5):
+    tiles_train = set(feat_train["tile"].unique())
+    tiles_test = set(feat_test["tile"].unique())
+
+    adjacent_test_tiles = set()
+    for tt in tiles_test:
+        if any(tile_adjacent(tt, tr, Gx=Gx) for tr in tiles_train):
+            adjacent_test_tiles.add(tt)
+
+    frac_test_tiles_adjacent = len(adjacent_test_tiles) / max(1, len(tiles_test))
+    print("Train tiles:", sorted(tiles_train))
+    print("Test tiles:", sorted(tiles_test))
+    print("Adjacent test tiles (touching a train tile):", sorted(adjacent_test_tiles))
+    print(f"Fraction of test tiles adjacent to at least one train tile: {frac_test_tiles_adjacent:.3f}")
+
+# print("\n=== SPATIAL LEAKAGE DIAGNOSTICS (TILE-BASED FINAL MODEL) ===")
+
+# # 1) Tile-overlap leakage: should be 0
+# _ = tile_leakage_summary(feat_train, feat_test)
+
+# # 2) Distance-based leakage
+# _ = add_nearest_train_distance(feat_train, feat_test)
+
+# # 3) Tile adjacency leakage (could be avoided if wanted)
+# adjacency_leakage(feat_train, feat_test, Gx=5)
