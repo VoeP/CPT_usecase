@@ -198,8 +198,8 @@ def correct_labels(labels, seq=None, min_length=20):
 
 
 
-input = data.DataSet("dashboard/input/input.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
-closest = data.DataSet("dashboard/input/closest.csv",segments_oi, 0.05).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
+input = data.DataSet("dashboard/input/input.csv",segments_oi, 0.05, dashboard=True).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
+closest = data.DataSet("dashboard/input/closest.csv",segments_oi, 0.05, dashboard=True).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
 
 try:
     input.drop(["Unnamed: 0"], axis=1, inplace=True)
@@ -214,6 +214,10 @@ except:
 #one_samp = validation[validation["sondering_id"]==rand]
 
 ## we load the finished model here (change later, keep used libraries at imports)
+
+#with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
+#    exported_model = pickle.load(f)
+
 with open(paths_cpt.PATH_TO_MODEL, 'rb') as f:
     exported_model = pickle.load(f)
 
@@ -291,6 +295,11 @@ copy_samp_gdp = gpd.GeoDataFrame(
 copy_samp_gdp = copy_samp_gdp.to_crs("EPSG:4326")
 copy_samp_gdp["lon"] = copy_samp_gdp.geometry.x
 copy_samp_gdp["lat"] = copy_samp_gdp.geometry.y
+
+
+
+## We make a new column to the input that is the version that we edit and output:
+input["final"] = input["postprocessed"].copy()
 
 # We use teh selected category to show only data we want to see
 if selected_category == "Predicted segments":
@@ -429,15 +438,68 @@ elif selected_category == "Nearest segment":
 
 
 elif selected_category == "Segment correction": 
+    
+
+    boundaries_indices = input["postprocessed"] != input["postprocessed"].shift(1)
+    boundaries_diepte = input.loc[boundaries_indices, "diepte"].tolist()
+    segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+
+    default = "\n".join([f"{label} : {diepte}" for label, diepte in zip(segment_labels, boundaries_diepte)])
+    #boundaries = input["diepte"][input["postprocessed"].diff() != 0].tolist()
+
+    boundaries_input = st.text_area(
+        "Edit segment boundaries (separated by new lines, in the style of \n" \
+        "Quartair : 2 \n" \
+        "Merelbeke : 4",
+        value=default,
+    )
+
+    labels = []
+    boundaries = []
+
+    for line in boundaries_input.split("\n"):
+        name, value = line.split(":")
+        name = name.strip()
+        value = float(value.strip())
+        labels.append(name)
+        boundaries.append(value)
+
+
+    if not boundaries: #always define boundaries
+        boundaries = boundaries_diepte
+
+    #segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+
+    input["final"] = None
+    for i, start in enumerate(boundaries):
+        seg_value = labels[i]
+        if i < len(boundaries) - 1:
+            end = boundaries[i + 1]
+        else:
+            end = input["diepte"].max()
+        mask = (input["diepte"] >= start) & (input["diepte"] < end)
+        input.loc[mask, "final"] = seg_value
+    input["final"] = input["final"].ffill() # this relates to a bugfix for the plots
+
+    csv_data = input.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download edited data",
+        data=csv_data,
+        file_name="edited_output.csv",
+        mime="text/csv"
+    )
+
     col_main, col_right = st.columns([3, 2])
 
 
-
+    #input = input.sort_values("diepte").reset_index(drop=True)
     with col_main:
         fig_main = px.line(
             input,
             x="icn",
             y="diepte",
+            color="final",
             height = 1200
         )
         st.plotly_chart(fig_main, key="raw", use_container_width=True)
@@ -450,16 +512,18 @@ elif selected_category == "Segment correction":
             x="icn",
             y="diepte",
             color="postprocessed",
-            title="Predicted segments",
+            title="Predicted",
             height = 600
         )
+        fig_postprocessed.update_layout(showlegend=False)
         cols = st.columns(2)
         with cols[0]:
             st.plotly_chart(fig_postprocessed, use_container_width=True)
 
         drilling_ids = closest["sondering_id"].unique()[:3]
         plot_idx = 0
-
+        height = 600
+        width=600
         for i, drilling_id in enumerate(drilling_ids):
             df = closest[closest["sondering_id"] == drilling_id]
             fig_side = px.line(
@@ -468,8 +532,10 @@ elif selected_category == "Segment correction":
                 y="diepte",
                 color="lithostrat_id",
                 title=f"Drilling {drilling_id}",
-                height = 600
+                height = height,
+                width=width,
             )
+            fig_side.update_layout(showlegend=False)
 
             col_idx = (i + 1) % 2
             row_idx = (i + 1) // 2
@@ -477,3 +543,5 @@ elif selected_category == "Segment correction":
                 cols = st.columns(2)
             with cols[col_idx]:
                 st.plotly_chart(fig_side, use_container_width=True)
+
+

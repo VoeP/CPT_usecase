@@ -31,7 +31,7 @@ segments_oi = [  # example segments of interest (same as the ones from the compa
 
 class DataSet():
     
-    def __init__(self, path_to_parquet, segments_of_interest, portion_validation):
+    def __init__(self, path_to_parquet, segments_of_interest, portion_validation, dashboard = False):
         """Takes path to data, segments of interest to filter on, and
         the fraction that the validation set should be of the whole filtered
         data."""
@@ -42,7 +42,10 @@ class DataSet():
         self.val_size = portion_validation
         #this filters out the segments we don't want and creates the test dataset,
         #since this way the NaNs are also filtered out
-        self.known_data = self.raw_df[self.raw_df["lithostrat_id"].isin(segments_of_interest)] 
+        if dashboard == False:
+            self.known_data = self.raw_df[self.raw_df["lithostrat_id"].isin(segments_of_interest)] 
+        else:
+            self.known_data = self.raw_df
         drillings = self.known_data.sondering_id.unique()
 
         #the below shuffles the drilling ids before we split into test and validation

@@ -11,7 +11,7 @@ y = input["y"].iloc[0]
 
 df["dist"] = (df["x"] - x)**2 + (df["y"] - y)**2
 
-df_nomissing = df.dropna()
+df_nomissing = df[~((df["lithostrat_id"].isna()) | (df["lithostrat_id"]=="None") | df["lithostrat_id"].str.contains('Onbekend') | df["lithostrat_id"].str.contains('nan'))]
 closest_ids = df_nomissing.groupby("sondering_id")["dist"].min().nsmallest(3).index.tolist()
 closest = df[df["sondering_id"].isin(closest_ids)]
 closest.to_csv("input/closest.csv", index=False)
