@@ -16,10 +16,10 @@ size_tune <- 20 # number of hyperparameter combinations to try per model
 
 ### Functions
 
-- The team was interested on which features were better at predicting the target variable.
+- We were interested on which features were better at predicting the target variable.
 - We should also show where our model predicts the whole series well, even if it misses the starting points with a few centimeters
 - We should also show how far off the predicted starting points are from the true starting points (in cm)
-- trying to see where our model gets the whole series can this be an updated research question
+- We checked whether our model gets the whole series can this be an updated research question
 
 ```{r functions}
 # Tune model hyperparameters
