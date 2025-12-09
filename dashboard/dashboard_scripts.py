@@ -98,7 +98,8 @@ if st.session_state.preprocessed:
     options = [
             "Predicted segments",
             "Segment correction",
-            "Segment uncertainty"
+            #"Segment uncertainty",
+            "Nearest segment"
         ]
 
     selected_category = st.sidebar.selectbox("Select category", options)
@@ -133,7 +134,8 @@ if st.session_state.preprocessed:
 
 
 
-    elif selected_category == "Segment uncertainty":
+    #elif selected_category == "Segment uncertainty":
+    elif 1==0:
 
         all_classes = np.unique(predictions)
         class_to_num = {cls: i for i, cls in enumerate(all_classes)}
@@ -212,43 +214,6 @@ if st.session_state.preprocessed:
 
         st.plotly_chart(fig)
 
-
-
-    elif selected_category == "Nearest segment":
-        #fig = go.Figure()
-
-        fig = px.line(
-            closest,
-            x="diepte",
-            y="icn",
-            color="lithostrat_id",
-            title="Sample from closest drilling",
-        )
-
-        st.plotly_chart(fig, key="predictions")
-
-        center_lat = (min_samp_gdf.lat.mean() + copy_samp_gdp.lat.mean()) / 2
-        center_lon = (min_samp_gdf.lon.mean() + copy_samp_gdp.lon.mean()) / 2
-
-        m = folium.Map(location=[center_lat, center_lon], zoom_start=14)
-        
-        folium.CircleMarker(
-                location=[min_samp_gdf.lat.mean(), min_samp_gdf.lon.mean()],
-                radius=6,
-                color="blue",
-                fill=True,
-                fill_color="blue",
-            ).add_to(m)
-        
-        folium.CircleMarker(
-                location=[copy_samp_gdp.lat.mean(), copy_samp_gdp.lon.mean()],
-                radius=6,
-                color="red",
-                fill=True,
-                fill_color="red",
-            ).add_to(m)
-
-        st_folium(m, width=700, height=500)
 
 
 
@@ -339,7 +304,10 @@ if st.session_state.preprocessed:
             plot_idx = 0
             height = 600
             width=600
+            ind = 0
             for i, drilling_id in enumerate(drilling_ids):
+                if ind > 3: # we add more drillings than 3 so we have to account for that with the plotting indices
+                    break
                 df = closest[closest["sondering_id"] == drilling_id]
                 fig_side = px.line(
                     df,
@@ -358,5 +326,123 @@ if st.session_state.preprocessed:
                     cols = st.columns(2)
                 with cols[col_idx]:
                     st.plotly_chart(fig_side, use_container_width=True)
+
+
+
+
+
+
+    elif selected_category == "Nearest segment":
+
+        boundaries_indices = input["postprocessed"] != input["postprocessed"].shift(1)
+        boundaries_diepte = input.loc[boundaries_indices, "diepte"].tolist()
+        segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+
+        default = "\n".join([f"{label} : {diepte}" for label, diepte in zip(segment_labels, boundaries_diepte)])
+        #boundaries = input["diepte"][input["postprocessed"].diff() != 0].tolist()
+
+        boundaries_input = st.text_area(
+            "Edit segment boundaries (separated by new lines, in the style of \n" \
+            "Quartair : 2 \n" \
+            "Merelbeke : 4",
+            value=default,
+        )
+
+        labels = []
+        boundaries = []
+
+        for line in boundaries_input.split("\n"):
+            name, value = line.split(":")
+            name = name.strip()
+            value = float(value.strip())
+            labels.append(name)
+            boundaries.append(value)
+
+
+        if not boundaries: #always define boundaries
+            boundaries = boundaries_diepte
+
+        #segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+
+        input["final"] = None
+
+        for i, start in enumerate(boundaries):
+            seg_value = labels[i]
+            if i < len(boundaries) - 1:
+                end = boundaries[i + 1]
+            else:
+                end = input["diepte"].max()
+            mask = (input["diepte"] >= start) & (input["diepte"] < end)
+            input.loc[mask, "final"] = seg_value
+        input["final"] = input["final"].ffill() # this relates to a bugfix for the plots
+
+
+        st.subheader("Nearest Segment")
+        col_left, col_right = st.columns(2)
+
+        csv_data = input.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download edited data",
+            data=csv_data,
+            file_name="edited_output.csv",
+            mime="text/csv"
+        )
+
+        unique_ids = closest["sondering_id"].unique()
+        selected_id = st.selectbox("Select nearest drilling", unique_ids, index=0, key="nearest_select")
+
+        filtered_closest = closest[closest["sondering_id"] == selected_id].copy()
+
+        with col_left:
+            fig_left = px.line(
+                input,
+                x="icn",
+                y="diepte",
+                color="final",
+                title="Selected nearest drilling",
+                height = 800
+            )
+            st.plotly_chart(fig_left, key="nearest_left_plot")
+
+        with col_right:
+            fig_right = px.line(
+                filtered_closest,
+                x="icn",
+                y="diepte",
+                color="lithostrat_id",
+                title=f"Drilling id : {selected_id}",
+                height = 800
+            )
+            st.plotly_chart(fig_right, key="nearest_right_plot")
+
+        center_lat = (min_samp_gdf.lat.mean() + copy_samp_gdp.lat.mean()) / 2
+        center_lon = (min_samp_gdf.lon.mean() + copy_samp_gdp.lon.mean()) / 2
+
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=15)
+
+        folium.CircleMarker(
+            location=[min_samp_gdf.lat.mean(), min_samp_gdf.lon.mean()],
+            radius=6,
+            color="blue",
+            fill=True,
+            fill_color="blue",
+            tooltip=f"sondering_id: {min_samp_gdf["sondering_id"].iloc[0]}",
+        ).add_to(m)
+
+        ids_on_map = closest["sondering_id"].unique()
+
+        for sid in ids_on_map:
+            df_s = min_samp_gdf[min_samp_gdf["sondering_id"] == sid]
+            folium.CircleMarker(
+                location=[df_s.lat.mean(), df_s.lon.mean()],
+                radius=5,
+                color="green" if sid != selected_id else "red",
+                fill=True,
+                fill_color="green" if sid != selected_id else "red",
+                tooltip=f"sondering_id: {sid}",
+            ).add_to(m)
+
+        st_folium(m, width=1000, height=1000)
 
 
