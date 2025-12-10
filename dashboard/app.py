@@ -19,7 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent / "modeling"))
 import data_processing as dp
 
 # Configuration 
-MODEL_PATH = Path(__file__).parent.parent / "results" / "models" / "best_xgb_model.pkl"
+MODEL_PATH = Path(__file__).parent.parent / "results" / "models" / "best_rf_model.pkl"
 LE_PATH = Path(__file__).parent.parent / "results" / "models" / "label_encoder.pkl"
 BIN_W = 0.6
 EXTRACT_TREND = True
