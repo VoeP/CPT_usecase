@@ -449,18 +449,43 @@ if st.session_state.preprocessed:
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         INPUT_FOLDER = os.path.join(BASE_DIR, "input")
         interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
+        interpolated_proba_path = os.path.join(INPUT_FOLDER, "interpolated_proba.txt")
         interpolated = input.copy()
         with open(interpolated_path, "r") as f:
             labels_gsip = [line.strip() for line in f if line.strip()]
+
+        proba_gsip = []
+        with open(interpolated_proba_path, "r") as f:
+            for line in f:
+                    line = line.strip()[1:-1]
+                    row = [float(x) for x in line.split()]
+                    prob = np.max(row)
+                    proba_gsip.append(prob)
+
         interpolated["gsip"] = labels_gsip
+        interpolated["gsip_proba"] = proba_gsip
         fig_left = px.line(
-                interpolated,
-                x="icn",
-                y="diepte",
-                color="gsip",
-                title="Geospatial interpolation",
-                height = 1000
-            )
+            interpolated,
+            x="diepte",
+            y="icn",
+            color="gsip",
+            title="Geospatial interpolation",
+            height=800,
+            width = 1200,
+            hover_data={"gsip_proba": True},
+                )
+        fig_left.add_trace(
+            go.Scatter(
+                x = interpolated["diepte"],
+                y=interpolated["gsip_proba"] * max(interpolated["icn"]) * 0.9,
+                mode="lines",
+                line=dict(color="cyan", width=6,),
+                hovertemplate="GSIP probability: %{customdata:.2f}<extra></extra>",
+                customdata=interpolated["gsip_proba"].values,
+                showlegend = False,
+                #title="GSIP probability",
+            ))
+        
         st.plotly_chart(fig_left, key="gsip_left_plot")
 
 

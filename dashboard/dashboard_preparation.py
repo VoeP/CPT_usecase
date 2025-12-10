@@ -33,6 +33,7 @@ def preprocessing(user_choice):
         input.to_csv(os.path.join(INPUT_FOLDER, name))
 
     interpolated = geospatial.predict(input[["x", "y", "diepte_mtaw"]])
+    interpolated_proba = geospatial.predict_proba(input[["x", "y", "diepte_mtaw"]])
     x = input["x"].iloc[0]
     y = input["y"].iloc[0]
 
@@ -48,7 +49,10 @@ def preprocessing(user_choice):
     with open(interpolated_path, "w") as f:
         for row in interpolated:
             f.write(str(row) + "\n")
-
+    interpolated_proba_path = os.path.join(INPUT_FOLDER, "interpolated_proba.txt")
+    with open(interpolated_proba_path, "w") as f:
+        for row in interpolated_proba:
+            f.write(str(row) + "\n")
 
 
 if __name__ == "__main__":
