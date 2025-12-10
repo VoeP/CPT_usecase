@@ -1,13 +1,20 @@
 import pandas as pd
 import os
+import pickle as pkl
+from paths_cpt import PATH_TO_GEOSPATIAL
+import numpy as np
 
 path = "C:/Users/volte/Downloads/vw_cpt_brussels_params_completeset_20250318_remapped.parquet" # change this
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_FOLDER = os.path.join(BASE_DIR, "input")
 
+
 def preprocessing(user_choice):
-    path_to_parquet = "C:/Users/volte/Downloads/vw_cpt_brussels_params_completeset_20250318_remapped.parquet"
+    path_to_parquet = path
     df = pd.read_parquet(path_to_parquet)
+    
+    with open(PATH_TO_GEOSPATIAL, "rb") as f:
+        geospatial = pkl.load(f)
     sonderings = df["sondering_id"].unique()
     #pick_one = df[df["sondering_id"] == sonderings[0]]
     #pick_one.to_csv("input/input.csv", index=False)
@@ -24,6 +31,8 @@ def preprocessing(user_choice):
         input = df[df["sondering_id"] == int(user_choice)]
         name = "input_t" + user_choice + ".csv"
         input.to_csv(os.path.join(INPUT_FOLDER, name))
+
+    interpolated = geospatial.predict(input[["x", "y", "diepte_mtaw"]])
     x = input["x"].iloc[0]
     y = input["y"].iloc[0]
 
@@ -31,11 +40,14 @@ def preprocessing(user_choice):
 
     df_nomissing = df[~((df["lithostrat_id"].isna()) | (df["lithostrat_id"]=="None") \
                         | df["lithostrat_id"].str.contains('Onbekend') | (df["lithostrat_id"]=="Onbekend") | df["lithostrat_id"].str.contains('nan'))]
-    closest_ids = df_nomissing.groupby("sondering_id")["dist"].min().nsmallest(15).index.tolist()
+    closest_ids = df_nomissing.groupby("sondering_id")["dist"].min().nsmallest(10).index.tolist()
     closest = df[df["sondering_id"].isin(closest_ids)]
     closest_path = os.path.join(INPUT_FOLDER, "closest.csv")
+    interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
     closest.to_csv(closest_path, index=False)
-
+    with open(interpolated_path, "w") as f:
+        for row in interpolated:
+            f.write(str(row) + "\n")
 
 
 

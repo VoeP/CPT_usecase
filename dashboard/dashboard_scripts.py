@@ -1,4 +1,5 @@
 from dashboard_internals import *
+import os
 
 
 
@@ -444,6 +445,24 @@ if st.session_state.preprocessed:
             ).add_to(m)
 
         st_folium(m, width=1000, height=1000)
+
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        INPUT_FOLDER = os.path.join(BASE_DIR, "input")
+        interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
+        interpolated = input.copy()
+        with open(interpolated_path, "r") as f:
+            labels_gsip = [line.strip() for line in f if line.strip()]
+        interpolated["gsip"] = labels_gsip
+        fig_left = px.line(
+                interpolated,
+                x="icn",
+                y="diepte",
+                color="gsip",
+                title="Geospatial interpolation",
+                height = 1000
+            )
+        st.plotly_chart(fig_left, key="gsip_left_plot")
+
 
 
 
