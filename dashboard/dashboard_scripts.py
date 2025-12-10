@@ -427,7 +427,7 @@ if st.session_state.preprocessed:
             color="blue",
             fill=True,
             fill_color="blue",
-            tooltip=f"sondering_id: {min_samp_gdf["sondering_id"].iloc[0]}",
+            tooltip=f"sondering_id: {min_samp_gdf['sondering_id'].iloc[0]}",
         ).add_to(m)
 
         ids_on_map = closest["sondering_id"].unique()
