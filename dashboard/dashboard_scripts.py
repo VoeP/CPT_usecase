@@ -647,6 +647,8 @@ if st.session_state.preprocessed:
 
 
         df_inspection_input = copy_samp_gdp.copy()
+        df_inspection_input["postprocessed"] = input["postprocessed"]
+        df_inspection_input["seg_pred_labels"] = input["seg_pred_labels"]
         st.subheader("CPT inspection: ground truth vs predictions")
 
         data_source = st.radio(
@@ -711,7 +713,7 @@ if st.session_state.preprocessed:
                     pred_col = None # TODO: maybe fall back to raw model output
 
                 # decide what to plot: GT, prediction, or both
-                if has_gt and pred_col is not None:
+                if True: #has_gt and pred_col is not None:
                     mode = st.radio(
                         "Labels to display",
                         ["Ground truth only", "Prediction only", "Ground truth vs prediction"],
@@ -743,7 +745,7 @@ if st.session_state.preprocessed:
                     if c is not None and c in df_cpt.columns
                 ]
 
-                if mode is not None:
+                if True: #mode is not None:
 
                     def make_line_fig(data, color_col, title):
                         data_sorted = data.sort_values("diepte")
@@ -752,6 +754,7 @@ if st.session_state.preprocessed:
                             x=feature,
                             y="diepte",
                             color=color_col,
+                            #color="lithostrat_id",
                             title=title,
                             height=700,
                         )
@@ -774,7 +777,7 @@ if st.session_state.preprocessed:
                         with col_pred:
                             fig_pred = make_line_fig(
                                 df_cpt,
-                                pred_col,
+                                label_column,
                                 f"Predicted segments ({pred_col}) vs {feature} (sondering_id={selected_id})",
                             )
                             st.plotly_chart(fig_pred, use_container_width=True)
@@ -793,13 +796,13 @@ if st.session_state.preprocessed:
                                 df_gt = df_cpt[df_cpt["lithostrat_id"].notna()]
                                 fig = make_line_fig(
                                     df_gt,
-                                    "lithostrat_id",
+                                    label_column,
                                     f"Ground truth vs {feature} (sondering_id={selected_id})",
                                 )
                             else:  # "Prediction only"
                                 fig = make_line_fig(
                                     df_cpt,
-                                    pred_col,
+                                    label_column,
                                     f"Predicted segments ({pred_col}) vs {feature} (sondering_id={selected_id})",
                                 )
                             st.plotly_chart(fig, use_container_width=True)
