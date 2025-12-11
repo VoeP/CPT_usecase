@@ -1,5 +1,3 @@
-
-
 """
 PDS Model — Python conversion focused on preprocessing only:
 - Parameters (EXTRACT_TREND, BIN_W, SET_SEED, size_tune, TH_QC20, TH_QC40, EXTRACT_TREND_TYPE)
@@ -207,237 +205,6 @@ def group_strat_split(dt: pd.DataFrame,
 # - extract_trend(x, freq=5, decomp_type="additive")
 # - TH_QC20, TH_QC40
 
-def process_cpt_data(
-    data_folder: Path,
-    results_folder: Path,
-    parquet_filename: str = "vw_cpt_brussels_params_completeset_20250318_remapped.parquet",
-    do_extract_trend: bool = EXTRACT_TREND,
-    bin_w: float = BIN_W,
-    seed: int = SET_SEED,
-    trend_type: str = "additive"
-):
-    """
-    Complete CPT preprocessing pipeline (preprocessing + features + split only).
-
-    Returns:
-        dict(features=DataFrame, train_ids=list, test_ids=list, split_seed=int)
-    """
-    # checks
-    if trend_type not in {"additive", "multiplicative"}:
-        raise ValueError(f"trend_type must be 'additive' or 'multiplicative', got {trend_type!r}")
-    results_folder.mkdir(parents=True, exist_ok=True)
-
-    parquet_path = data_folder / parquet_filename
-    if not parquet_path.exists():
-        raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
-
-    # load data
-    cpt_df = pd.read_parquet(parquet_path, engine="fastparquet")
-
-    # required columns used below
-    required = {"sondering_id", "lithostrat_id", "diepte"}
-    missing = required - set(cpt_df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    # filter / clean
-    cpt_df = cpt_df[~cpt_df["lithostrat_id"].isna()].copy()
-
-    # rare litho removal
-
-    litho_counts = (
-        cpt_df.drop_duplicates(subset=["sondering_id", "lithostrat_id"])
-              .groupby("lithostrat_id", dropna=False)
-              .size()
-              .reset_index(name="N")
-    )
-    rare_litho = set(litho_counts.loc[litho_counts["N"] < 5, "lithostrat_id"])
-    if rare_litho:
-        cpt_df = cpt_df[~cpt_df["lithostrat_id"].isin(rare_litho)].copy()
-
-    # Find Unique litho per sondering for stratified split
-    cpt_unique = cpt_df.drop_duplicates(subset=["sondering_id", "lithostrat_id"]).copy()
-    split_res = group_strat_split(cpt_unique, prop=0.7, tol=0.05, seed=seed)
-    train_ids = list(split_res["train_ids"])
-    test_ids  = list(split_res["test_ids"])
-
-    print("Train IDs:", len(train_ids))
-    print("Test   IDs:", len(test_ids))
-
-    split_res_json = {
-        **split_res,
-        "train_ids": split_res["train_ids"].tolist(),
-        "test_ids": split_res["test_ids"].tolist(),
-        "seed": int(split_res["seed"])
-    }
-    with open(results_folder / "split_res.json", "w") as f:
-        json.dump(split_res_json, f)
-
-    # order + bin
-    id_col = "sondering_id"
-    depth_col = "diepte"
-    cpt_df = cpt_df.sort_values([id_col, depth_col]).copy()
-    max_depth = float(cpt_df[depth_col].max())
-    # create bins
-    bins = np.arange(0, max_depth + bin_w, bin_w) if bin_w > 0 else np.array([0, max_depth or 1.0])
-    if len(bins) < 2:
-        bins = np.array([0, max_depth + (bin_w if bin_w > 0 else 1.0)])
-    cpt_df["depth_bin"] = pd.cut(cpt_df["diepte"], bins=bins, include_lowest=True, ordered=True)
-    # create raw QC column
-    cpt_df["QC_raw"] = cpt_df["qc"]
-
-    # optional trend extraction
-    if do_extract_trend:
-      
-        #"rf", "qtn", "fr"]
-        feat_cols_trend = [c for c in ["qc", "fs", "qtn"] if c in cpt_df.columns]
-       # feat_cols_trend_nms = [f"{c}_trend" for c in feat_cols_trend]
-        if feat_cols_trend:
-            cpt_df = cpt_df.sort_values(["sondering_id", "diepte"]).copy()
-
-            def _trend_and_fill(group: pd.DataFrame) -> pd.DataFrame:
-                # Ensure the group identifier column exists even when include_groups=False
-                if "sondering_id" not in group.columns:
-                    group = group.copy()
-                    group["sondering_id"] = group.name
-
-                freq = freq_from_depth(group["diepte"].values)
-                for col in feat_cols_trend:
-                    vals = extract_trend(group[col].values, freq=freq, decomp_type=trend_type)
-                    # Convert to series first for proper handling
-                    v = pd.Series(pd.to_numeric(vals, errors="coerce"))
-                    v = v.replace([np.inf, -np.inf], np.nan)
-                    # mirror R: forward once, backward twice
-                    v = v.ffill().bfill().bfill().to_numpy()
-                    group[col] = v
-                return group
-
-            cpt_df = (cpt_df.groupby("sondering_id", group_keys=False, observed=False)
-                           .apply(_trend_and_fill))
-
-    #Stats for binning + whole
-
-    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte", "diepte_mtaw"] if c in cpt_df.columns]
-    geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in cpt_df.columns]
-
-    # np stats with na handling
-    def mean_na(x): 
-        return float(np.nanmean(x))
-    def sd_na(x):     
-        return float(np.nanstd(x, ddof=1))
-    def iqr_na(x):   
-        return float(np.nanpercentile(x, 75) - np.nanpercentile(x, 25))
-    def median_na(x):
-        return float(np.nanmedian(x))
-    def mad_na(x):
-        med = np.nanmedian(x)
-        return float(np.nanmedian(np.abs(x - med)))
-    def q10(x): 
-        return float(np.nanpercentile(x, 10))
-    def q50(x): 
-        return float(np.nanpercentile(x, 50))
-    def q90(x): 
-        return float(np.nanpercentile(x, 90))
-    def cv(x):
-        m = np.nanmean(x)
-        s = np.nanstd(x, ddof=1)
-        return float(np.nan) if (not np.isfinite(m) or m == 0) else float(s / m)
-
-    stats = {
-        "sd": sd_na, "mean": mean_na,
-        "iqr": iqr_na, "median": median_na, "mad": mad_na,
-        "q10": q10, "q50": q50, "q90": q90, "cv": cv
-    }
-
-
-    # save cpt_df with cols sondering_id, diepte, depth_bin, lithostrat_id
-   
-    # unique lithostrat per bin
-    litho_dept = (
-        cpt_df.loc[:, ["sondering_id", "lithostrat_id", "depth_bin"]]
-              .drop_duplicates(subset=["sondering_id", "depth_bin", "lithostrat_id"])
-              .copy()
-    )
-    
-
-    # aggregations
-    summaries_bin = agg_features(cpt_df, 
-                                 feat_cols, 
-                                 [id_col, "depth_bin"],
-                                   stats) if feat_cols else pd.DataFrame()
-    summaries_whole = agg_features(cpt_df, geog_cols, [id_col], 
-                                   stats, 
-                                   suffix="_whole") if geog_cols else pd.DataFrame()
-
-    # merge (careful with empty frames)
-    if summaries_bin.empty and not summaries_whole.empty:
-        dt = summaries_whole.copy()
-    elif summaries_whole.empty and not summaries_bin.empty:
-        dt = summaries_bin.copy()
-    else:
-        dt = summaries_bin.merge(summaries_whole, on=id_col, how="left")
-
-    dt = dt.merge(
-        litho_dept,
-        left_on=[id_col, "depth_bin"],
-        right_on=["sondering_id", "depth_bin"],
-        how="left"
-    )
-    ## remove missing lithostrat_id
-    dt = dt[~dt["lithostrat_id"].isna()].copy()
-
-    # QC spikes
-    if "QC_raw" in cpt_df.columns and not cpt_df["QC_raw"].isna().all():
-        qc_ok = cpt_df.dropna(subset=["QC_raw"]).copy()
-        qc_spikes = (
-            qc_ok.groupby([id_col, "depth_bin"], dropna=False, observed=False)["QC_raw"]
-                 .agg(
-                     qc_frac_gt20=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC20),
-                     qc_frac_gt40=lambda s: np.mean(s.to_numpy(dtype=float) > TH_QC40),
-                     qc_count_gt20=lambda s: np.sum(s.to_numpy(dtype=float) > TH_QC20),
-                     qc_count_gt40=lambda s: np.sum(s.to_numpy(dtype=float) > TH_QC40),
-                     qc_p99=lambda s: float(np.nanpercentile(s.to_numpy(dtype=float), 99)),
-                 )
-                 .reset_index()
-        )
-        dt = dt.merge(qc_spikes, on=[id_col, "depth_bin"], how="left")
-
-    # Create descriptive filename suffix with parameters
-    extract_str = "true" if extract_trend else "false"
-    suffix = f"{extract_str}_{bin_w}_{seed}_{trend_type}"
-    
-    # write out all features
-    out_path = results_folder / f"cpt_features_{suffix}.csv"
-    dt.to_csv(out_path, index=False)
-    print(f"Wrote all features: {out_path}")
-    
-    # write training features
-    train_data = dt[dt[id_col].isin(train_ids)].copy()
-    out_path_train = results_folder / f"train_binned_{suffix}.csv"
-    train_data.to_csv(out_path_train, index=False)
-    print(f"Wrote training data: {out_path_train}")
-    
-    # write test features
-    test_data = dt[dt[id_col].isin(test_ids)].copy()
-    out_path_test = results_folder / f"test_binned_{suffix}.csv"
-    test_data.to_csv(out_path_test, index=False)
-    print(f"Wrote test data: {out_path_test}")
-
-    # save cpt_df with cols sondering_id, diepte, depth_bin, lithostrat_id
-    cpt_df[["sondering_id", "diepte", "depth_bin", "lithostrat_id"]].to_csv(
-        results_folder / f"cpt_ids_{suffix}.csv", index=False
-    )
-
-
-
-    return {
-        "features": dt,
-        "train_ids": train_ids,
-        "test_ids": test_ids,
-        "split_seed": split_res["seed"],
-    }
-
-
 def process_test_train(
     cpt_df: pd.DataFrame,
     sondering_ids: list,
@@ -513,25 +280,103 @@ def process_test_train(
     geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in df.columns]
 
     # np stats with na handling
-    def mean_na(x): return float(np.nanmean(x))
-    def sd_na(x): return float(np.nanstd(x, ddof=1))
-    def iqr_na(x): return float(np.nanpercentile(x, 75) - np.nanpercentile(x, 25))
-    def median_na(x): return float(np.nanmedian(x))
+    def mean_na(x): 
+        return float(np.nanmean(x))
+    def sd_na(x): 
+        return float(np.nanstd(x, ddof=1))
+    def iqr_na(x): 
+        return float(np.nanpercentile(x, 75) - np.nanpercentile(x, 25))
+    def median_na(x): 
+        return float(np.nanmedian(x))
     def mad_na(x):
         med = np.nanmedian(x)
         return float(np.nanmedian(np.abs(x - med)))
     def q10(x): return float(np.nanpercentile(x, 10))
     def q50(x): return float(np.nanpercentile(x, 50))
     def q90(x): return float(np.nanpercentile(x, 90))
+
     def cv(x):
         m = np.nanmean(x)
         s = np.nanstd(x, ddof=1)
         return float(np.nan) if (not np.isfinite(m) or m == 0) else float(s / m)
+    # max
+    def max_na(x):
+        return float(np.nanmax(x)) if np.size(x) else float(np.nan)
+
+    # Additional NaN-safe stats
+    def min_na(x):
+        return float(np.nanmin(x)) if np.size(x) else float(np.nan)
+
+    def range_na(x):
+        try:
+            return float(np.nanmax(x) - np.nanmin(x))
+        except Exception:
+            return float(np.nan)
+
+    def trimmed_mean_na(x, trim=0.1):
+        v = np.array(x, dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            return float(np.nan)
+        v.sort()
+        k = int(np.floor(trim * v.size))
+        v = v[k: v.size - k] if v.size - 2 * k > 0 else v
+        return float(np.mean(v))
+
+    def skew_na(x):
+        v = np.array(x, dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size < 3:
+            return float(np.nan)
+        m = np.mean(v); s = np.std(v, ddof=1)
+        if s == 0:
+            return float(0.0)
+        return float(np.mean(((v - m) / s) ** 3))
+
+    def kurtosis_na(x):
+        v = np.array(x, dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size < 4:
+            return float(np.nan)
+        m = np.mean(v); s = np.std(v, ddof=1)
+        if s == 0:
+            return float(0.0)
+        return float(np.mean(((v - m) / s) ** 4) - 3.0)  # excess kurtosis
+
+    def q01(x):
+        return float(np.nanpercentile(x, 1))
+
+    def q99(x):
+        return float(np.nanpercentile(x, 99))
+
+    def entropy_na(x, bins=20):
+        v = np.array(x, dtype=float)
+        v = v[np.isfinite(v)]
+        if v.size == 0:
+            return float(np.nan)
+        # histogram-based entropy
+        hist, _ = np.histogram(v, bins=bins)
+        p = hist.astype(float)
+        p = p / (p.sum() if p.sum() > 0 else 1.0)
+        p = p[p > 0]
+        return float(-np.sum(p * np.log(p)))
+
+    def valid_n(x):
+        v = np.array(x, dtype=float)
+        return float(np.sum(np.isfinite(v)))
+
+    def frac_missing(x):
+        v = np.array(x, dtype=float)
+        return float(np.mean(~np.isfinite(v))) if v.size else float(np.nan)
 
     stats = {
         "sd": sd_na, "mean": mean_na,
         "iqr": iqr_na, "median": median_na, "mad": mad_na,
-        "q10": q10, "q50": q50, "q90": q90, "cv": cv
+        "q01": q01, "q10": q10, "q50": q50, "q90": q90, "q99": q99,
+        "min": min_na, "max": max_na, "range": range_na,
+        "cv": cv, "trimmed_mean": trimmed_mean_na,
+        "skew": skew_na, "kurtosis": kurtosis_na,
+        "entropy": entropy_na, "valid_n": valid_n, "frac_missing": frac_missing
     }
 
     # unique lithostrat per bin
@@ -579,91 +424,15 @@ def process_test_train(
         )
         dt = dt.merge(qc_spikes, on=[id_col, "depth_bin"], how="left")
 
+    # Fill missing values with the mean of that column grouped by sondering_id
+    # This handles cases where specific bins have missing features (NaN) by using the sondering average
+    numeric_cols = dt.select_dtypes(include=[np.number]).columns
+    cols_to_fill = [c for c in numeric_cols if c not in [id_col, "depth_bin"] and dt[c].isna().any()]
+
+    if cols_to_fill:
+        dt[cols_to_fill] = dt.groupby(id_col)[cols_to_fill].transform(
+            lambda g: g.fillna(g.mean())
+        )
+
     return dt
 
-
-def main():
-    """
-    Command-line entry point with argument parsing.
-    
-    Usage:
-        python modeling/data_processing.py
-        python modeling/data_processing.py --extract_trend False --bin_w 0.5 --seed 123
-        python modeling/data_processing.py --trend_type multiplicative
-    """
-    parser = argparse.ArgumentParser(
-        description="CPT data preprocessing pipeline for geological feature extraction"
-    )
-    
-    parser.add_argument(
-        "--extract_trend",
-        type=lambda x: x.lower() in ('true', '1', 'yes'),
-        default=EXTRACT_TREND,
-        help=f"Extract trend from signals (default: {EXTRACT_TREND})"
-    )
-    
-    parser.add_argument(
-        "--bin_w",
-        type=float,
-        default=BIN_W,
-        help=f"Binning width in meters (default: {BIN_W})"
-    )
-    
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=SET_SEED,
-        help=f"Random seed for reproducibility (default: {SET_SEED})"
-    )
-    
-    parser.add_argument(
-        "--trend_type",
-        type=str,
-        choices=["additive", "multiplicative"],
-        default=EXTRACT_TREND_TYPE,
-        help=f"Trend decomposition type (default: {EXTRACT_TREND_TYPE})"
-    )
-    
-    parser.add_argument(
-        "--data_folder",
-        type=str,
-        default="data",
-        help="Path to data folder (default: data)"
-    )
-    
-    parser.add_argument(
-        "--results_folder",
-        type=str,
-        default="results",
-        help="Path to results folder (default: results)"
-    )
-    
-    args = parser.parse_args()
-    
-    # Print parameters being used
-    print("Running with parameters:")
-    print(f"  EXTRACT_TREND: {args.extract_trend}")
-    print(f"  BIN_W: {args.bin_w}")
-    print(f"  SET_SEED: {args.seed}")
-    print(f"  EXTRACT_TREND_TYPE: {args.trend_type}")
-    print(f"  Data folder: {args.data_folder}")
-    print(f"  Results folder: {args.results_folder}")
-    print()
-
-    result = process_cpt_data(
-        data_folder=Path(args.data_folder),
-        results_folder=Path(args.results_folder),
-        do_extract_trend=args.extract_trend,
-        bin_w=args.bin_w,
-        seed=args.seed,
-        trend_type=args.trend_type
-    )
-    
-    print("\nSplit Summary:")
-    print("Train IDs:", len(result["train_ids"]))
-    print("Test  IDs:", len(result["test_ids"]))
-    print("Seed used:", result["split_seed"])
-
-
-if __name__ == "__main__":
-    main()

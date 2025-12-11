@@ -1,14 +1,18 @@
 CPT USECASE GitHub Document
 ================
 
-## CPT usecase
+## CPT Usecase - Lithostratigraphy Modelling
 
 modeling/ contains notebooks and scripts for model building
 
 dashbord/ contains streamlit dashboard scripts
 
 You need to add your aboslute paths to the paths_cpt_file for it to run.
-You need to define PATH_TO_PARQUET = “” and PATH_TO_MODEL =““. The idea is that we can change this logic later to use environment variables instead to run this in different environments. For the dashboard to work, you need to also create the pickle of the model by running the EDA.ipynb (or whatever other method).
+You need to define PATH_TO_PARQUET = “” and PATH_TO_MODEL =““. The idea
+there is that we can change this logic later to use environment
+variables instead to run this in different environments. For the
+dashboard to work, you need to also create the pickle of the model by
+running the EDA.ipynb (or whatever other method).
 
 This README explains:
 
@@ -19,25 +23,28 @@ This README explains:
 
 ## Repository structure
 
-├─ dashboard/            # Streamlit dashboard files
-├─ Documentation/        # Reports, slides, background docs
-├─ exploratory/          # EDA notebooks and quick experiments
-├─ modeling/             # Reusable scripts + modelling notebooks
-├─ results/              # Processed data, splits, model outputs
-├─ README.md             # This file
-├─ README.Rmd            # RMarkdown source for README.html
-├─ README.html           # Rendered README (for sharing)
-├─ requirements.txt      # Python dependencies
-└─ run_dashboard.bat     # Helper script to start the dashboard on Windows
+- [**dashboard/**](./dashboard) - Streamlit dashboard files
+- [**Documentation/**](./Documentation) - Reports, slides, background
+  docs
+- [**exploratory/**](./exploratory) - EDA notebooks and quick
+  experiments
+- [**modeling/**](./modeling) - Reusable scripts + modelling notebooks
+- [**results/**](./results) - Processed data, splits, model outputs
+- [**README.md**](./README.md) - This file
+- [**README.Rmd**](./README.Rmd) - RMarkdown source for README.md
+- [**requirements.txt**](./requirements.txt) - Python dependencies
+- [**run_dashboard.bat**](./run_dashboard.bat) - Helper script to start
+  the dashboard on Windows
 
 ## Setup
-Create a virtual environment and install dependencies:
-pip install -r requirements.txt
-The path configuration for CPT data is in path_cpt.py (This can be replaced by environment variables)
 
-## Data Processing
+Create a virtual environment and install dependencies: pip install -r
+requirements.txt The path configuration for CPT data is in path_cpt.py
+(This can can be replaced by environment variables)
 
-### The binning method
+### Data Processing
+
+#### [Binning pipeline code](./modeling/data_processing.py)
 
 The goal is to turn noisy CPT measurements along depth into clean,
 comparable slices (bins) with summary features.
@@ -87,14 +94,26 @@ comparable slices (bins) with summary features.
   Run the preprocessing from the repo root with optional flags to
   control behavior:
 
-``` bash
-python modeling/data_processing.py --extract_trend True --bin_w 0.6 --seed 42 --trend_type additive --data_folder data --results_folder results
-```
+Inport the script as a module and in your modelling script run it as
+shown below
 
-- To run with default parameters, simply run:
+``` python
+train_processed = dp.process_test_train(
+    cpt_df=cpt_data,
+    sondering_ids=train_ids,
+    bin_w=BIN_W,
+    do_extract_trend=EXTRACT_TREND,
+    trend_type=TREND_TYPE
+)
 
-``` bash
-python modeling/data_processing.py
+print("Processing test data...")
+test_processed = dp.process_test_train(
+    cpt_df=cpt_data,
+    sondering_ids=test_ids,
+    bin_w=BIN_W,
+    do_extract_trend=EXTRACT_TREND,
+    trend_type=TREND_TYPE
+)
 ```
 
 Arguments:
@@ -122,12 +141,100 @@ with open("results/split_res.json", "r") as f:
     test_train = json.load(f)
 #print("IDS", test_train)
 print("Train IDs:", test_train["train_ids"])
-```
-
-    ## Train IDs: [4875, 4476, 4877, 4551, 1135, 4574, 4617, 4869, 3648, 4674, 316, 13184, 4678, 13081, 4833, 4560, 3749, 4643, 4417, 4868, 3745, 2924, 3658, 4747, 4445, 3386, 3724, 3804, 4659, 3663, 4582, 4767, 4807, 3892, 3646, 14010, 13295, 496, 3399, 13298, 13288, 1931, 4660, 4449, 4594, 4437, 4918, 4665, 552, 13140, 4866, 495, 1580, 377, 3678, 4425, 4383, 13289, 4524, 13167, 3667, 3666, 4811, 4629, 13203, 3674, 375, 1928, 4415, 3662, 14008, 4775, 1933, 14001, 4440, 4912, 3712, 4876, 13285, 319, 13180, 3676, 4614, 3806, 3670, 14007, 4768, 3387, 4640, 4873, 4579, 3644, 4624, 4865, 4810, 13066, 3681, 3891, 554, 3661, 4578, 4759, 3748, 3400, 13300, 555, 13125, 13267, 4429, 3682, 2699, 4835, 2752, 14013, 14006, 3643, 4510, 4407, 4472, 4917, 494, 13113, 3655, 14004, 4646, 4677, 4806, 3389, 13211, 13057, 4809, 4815, 4919, 4647, 3675, 3651, 4481, 13257, 1578, 4442, 376, 2923, 3398, 550, 4740, 4913, 13063, 13117, 13067, 551, 13297, 4648, 13145, 14000, 4517, 4886, 4408, 553, 1930, 4473, 4564, 4878, 1775, 13010, 14003, 4547, 4605, 1579, 4808, 13131, 4794, 4409, 3660, 497, 1848, 3808, 4776, 1929, 4482, 4441, 4915, 3746, 4515, 4843, 13095, 3656, 13001, 4464, 4382, 13094, 3893, 4910, 4557, 4455, 4874, 3647, 3652, 1932, 4761]
-
-``` python
 print("Test   IDs:", test_train["test_ids"])
 ```
 
-    ## Test   IDs: [3807, 3665, 4569, 4521, 315, 1581, 4887, 3809, 4828, 4424, 4814, 4785, 4411, 4772, 4460, 13110, 13138, 3671, 1156, 1834, 3805, 4410, 14011, 3385, 374, 3397, 4537, 4518, 13143, 4737, 3388, 13068, 13062, 13286, 14009, 13159, 1158, 4916, 14005, 3653, 13091, 4821, 13206, 3679, 4514, 13006, 4540, 3664, 13105, 4448, 13166, 2705, 3672, 3654, 3669, 4619, 3894, 3683, 3720, 4889, 3747, 13004, 4736, 4858, 1823, 3722, 3739, 13160, 3677, 3680, 4438, 4860, 2702, 2916, 4820, 493, 4745, 13142, 4658, 4902, 314, 3723, 3657, 4867, 1927, 4596]
+#### [Data Modules](./modeling/data_modules.py)
+
+### [Models Folder](./modeling)
+
+This folder contains the model training and evaluation notebooks and
+scripts.
+
+#### [KNN Model & HMM Experimentation](./modeling/modeling_voep.ipynb)
+
+say something about this notebook
+
+#### [Geaospatial interpolation Model](./modeling/geospatial_model.py)
+
+say something about this script
+
+#### [Fit Models](./modeling/fit_models.py)
+
+say something about this script
+
+#### [Binning Models](./modeling/binn_method_modelling.ipynb)
+
+To handle the high-resolution nature of Cone Penetration Test (CPT)
+data, this workflow implements a feature engineering strategy based on
+depth binning. Raw sensor measurements are aggregated into fixed-width
+intervals (0.6m), extracting statistical summaries and trend features to
+reduce noise and dimensionality.
+
+We trained and tuned three tree-based ensemble classifiers—XGBoost,
+Random Forest, and LightGBM—using RandomizedSearchCV to optimize
+
+performance. Evaluation is conducted in two stages: first on the
+aggregated test bins, and subsequently by propagating predictions back
+to the raw, unbinned dataset to assess the model’s granular accuracy
+across specific lithostratigraphic units.
+
+#### [CRM Model](./modeling/model_CRM_Dorothy.ipynb)
+
+say something about this notebook
+
+### Exploratory Analysis
+
+#### [Folder with EDA notebooks and comparison of model results](./exploratory)
+
+Initial data checks can be found here some of it is also within the
+modeling notebooks.
+
+### Dashboard
+
+#### Streamlit dashboard code
+
+say something about the dashboard
+
+- [Dashboard internals](./dashboard/dashboard_internals.py)
+- [Dashboard main script](./dashboard/dashboard_scripts.py)
+- [Dashboard preparation script](./dashboard/dashboard_preparation.py)
+
+##### How to run streamlit dashboard
+
+Give more details on how to Run the streamlit dashboard
+
+- [Running the Dashboard script windows](./run_dashboard.bat)
+- [Running the Dashboard script linux](./run_dashboard.sh)
+
+#### Other Tried Frameworks (Plotly Dash)
+
+- [Dash App](./dashboard/app.py)
+
+##### How to run
+
+- From terminal run: python dashboard/app.py
+- You will see the link to open in the terminal once the server is
+  running.
+- Open the link in your browser to access the dashboard.
+- Data upload use csv file with same structure as data provided by VITO
+- Example data set [test data](data/test_raw_data.csv)
+- required packages
+- [Model used is the RandomForest model pickle provided in the
+  repo](./results/models/best_rf_model.pkl)
+- [Labeler used is the label encoder pickle provided in the
+  repo](./results/models/label_encoder.pkl)
+
+``` text
+numpy
+pandas
+dash
+plotly
+joblib
+matplotlib
+fastparquet
+scikit-learn
+```
+
+- copy packages in a text file text_file_name.txt and run pip install -r
+  text_file_name.txt to install all packages at once.
