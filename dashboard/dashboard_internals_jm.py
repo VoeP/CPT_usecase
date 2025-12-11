@@ -1,3 +1,14 @@
+"""
+dashboardinternals.py
+
+Internal helper functions for the Streamlit CPT dashboard.
+
+Main responsibilities:
+- Load the trained model and apply it to a selected CPT.
+- Post-process/smooth the predicted lithostrat labels in depth.
+- Enforce a plausible vertical order of formations.
+- Prepare GeoDataFrames for mapping in the dashboard.
+"""
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -52,11 +63,6 @@ def smooth_one_samp(pred_labels, depths):
     smoothed_labels = smoothed_local[np.argsort(sort_idx)]
 
     return smoothed_labels, class_to_kde
-
-
-
-
-
 
 
 theoretical_ordering = {"Quartair":1,
