@@ -386,3 +386,114 @@ p_crm_f1_support
     ## (`geom_smooth()`).
 
 ![](results_section_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
+
+### Hybrid tile-based knn + features model
+
+``` r
+# ----------------------------------------------------------
+# 1. Hybrid model metrics table
+# ----------------------------------------------------------
+
+crm_model <- tribble(
+  ~layer,                 ~accuracy,
+  "Aalbeke",                 0.786,
+  "Asse",                    1.000,
+  "Bolderberg",              0.000,
+  "Brussel",                 0.727,
+  "Kwatrecht",               0.333,
+  "Lede",                    0.750,
+  "Merelbeke",               0.000,
+  "Mons_en_Pevele",          0.846,
+  "Mont_Panisel",            0.706,
+  "Quartair",                0.875,
+  "Ursel",                   0.667,
+  "Wemmel",                  0.889,
+)
+
+# ----------------------------------------------------------
+# 2. Train and test split
+# ----------------------------------------------------------
+
+**Train/test split**  
+The dataset is partitioned into a 5×5 grid over the (x, y) coordinates. A tile-based split is used to reduce spatial leakage:  
+ - **70 %** of the tiles are used for training,  
+ - **30 %** for testing.  
+For comparability with earlier work, the script can also reconstruct the historic JSON-based split, but the hybrid model is trained on the tile split.
+
+# ----------------------------------------------------------
+# 3. Feature selection procedure and final set
+# ----------------------------------------------------------
+
+**Final feature set**  
+The Python model reuses the engineered features from the CPT feature table and, after a two-step feature selection procedure, fixes five features as input for the hybrid kNN.
+In the first step, we computed an ANOVA F-statistic for each numeric candidate feature on the tile-training set (68 candidate features) and ranked them by decreasing F-value. In the second step, we iteratively added features in that order while excluding any feature whose absolute Pearson correlation with already selected features exceeded 0.95 (|r| ≥ 0.95), stopping once at most five features were retained (max_features = 5 based on LOOCV). Thus, we obtained the following final feature set:
+  
+ - `icn_sq_mean`  
+ - `log_qc_mean`  
+ - `rf_top3_mean_depth_rel`  
+ - `qtn_top3_mean_depth_rel`  
+ - `rf_mean`  
+
+These features encode cone resistance, friction ratio and normalized depth information and were chosen in an earlier LOOCV run as a compromise between discriminability and redundancy.
+
+# ----------------------------------------------------------
+# 4. Inverse distance weighting
+# ----------------------------------------------------------
+
+**Distance definition**  
+ For every query row, the model computes:
+  
+ - a **spatial distance** in standardized x–y space,  
+ - an **elevation distance** around the row’s mean depth relative to mean sea level (`mean_depth_mtaw`) using a window of width τ,  
+ - a **feature distance** in z-scored feature space for the five selected features.
+
+The combined distance for neighbor search is
+
+\[
+d_\text{combo} = \sqrt{\alpha\, d_\text{spatial}^2 + \beta\, d_\text{feat}^2},
+\]
+
+where α controls the weight of spatial proximity and β the weight of feature similarity.
+
+# ----------------------------------------------------------
+# 5. Hyperparameters after LOOCV hyperparameter tuning
+# ----------------------------------------------------------
+
+**Final hyperparameters used for the report**  
+
+The hyperparameters were tuned with LOOCV (where one tile was left out) and yielded these results:
+
+ | Component                    | Value        |
+ |------------------------------|-------------:|
+ | Model type                   | row-based hybrid knn (as opposed to cpt-based hybrid knn) |
+ | Number of neighbours \(k\)   | 3            |
+ | Elevation window τ starts at | 20.0         |
+ | Spatial weight α             | 2.5          |
+ | Feature weight β             | 2.0          |
+
+# ----------------------------------------------------------
+# 6. Model eval and post-processing
+# ----------------------------------------------------------
+
+Evaluation and post-processing
+
+**Tile-based test accuracy (before post-processing)**  
+On the tile-based test set, the hybrid kNN model achieves an overall accuracy of **74%** before stratigraphic post-processing.
+
+**JSON-based test accuracy (common test and train split)**  
+For comparability with earlier models, the same tile-trained hybrid model is also evaluated on the JSON-based test split. On this split, the model achieves an overall accuracy of **77%** before post-processing.
+
+**Stratigraphic post-processing**  
+To enforce a realistic stratigraphic ordering along each CPT, the Python model performs one post-processing step:
+
+ - For each CPT, rows are sorted from top to bottom by `mean_depth_mtaw`.  
+ - For each row, the algorithm starts from the best predicted label and only accepts labels that are consistent with the fixed segment order.  
+ - If the best label violates this order, the algorithm first tries the second-best label; if that also violates the order, it falls back to the previous accepted label along the CPT.
+
+This procedure changes the predicted label for **19** rows. After post-processing, the overall accuracy on the tile-based test set increases to **66%**.
+
+Overall, the hybrid knn model
+
+- offers a geospatial baseline that works on tile-based splits to reduce spatial leakage,  
+- uses a compact set of five CPT-based features instead of the full feature table, and  
+- enforces a segment order along each CPT while providing an accuracy estimate of the post-processed result.

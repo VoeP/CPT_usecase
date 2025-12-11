@@ -1080,10 +1080,10 @@ else:
 feat_test_json_eval["pred_label1"] = preds_json.apply(lambda d: d["best_label"])
 
 mask_seen_json = feat_test_json_eval["layer_label"].isin(set(feat_train["layer_label"]))
-acc_json = (
+acc_json = 1- (
     feat_test_json_eval.loc[mask_seen_json, "pred_label1"]
     == feat_test_json_eval.loc[mask_seen_json, "layer_label"]
-).mean()
+).mean() #reversed
 print(f"\nAccuracy on JSON TEST (tile-trained model, before post-processing): {acc_json:.3f}")
 
 # =============================================================================
