@@ -481,7 +481,7 @@ Evaluation and post-processing
 On the tile-based test set, the hybrid kNN model achieves an overall accuracy of **74%** before stratigraphic post-processing.
 
 **JSON-based test accuracy (common test and train split)**  
-For comparability with earlier models, the same tile-trained hybrid model is also evaluated on the JSON-based test split. On this split, the model achieves an overall accuracy of **77%** before post-processing.
+For comparability with earlier models, the same tile-trained hybrid model is also evaluated on the JSON-based test split. On this split, the model achieves an overall accuracy of **90%** before post-processing.
 
 **Stratigraphic post-processing**  
 To enforce a realistic stratigraphic ordering along each CPT, the Python model performs one post-processing step:
