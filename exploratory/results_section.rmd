@@ -1,0 +1,140 @@
+---
+title: "Untitled"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(ggrepel)  # for nicer text labels on the scatter plot
+
+# -------------------------------------------------------------------
+# 1. Enter the classification report as a data frame
+# -------------------------------------------------------------------
+metrics <- tribble(
+  ~layer,                 ~precision, ~recall, ~f1,  ~support,
+  "Aalbeke",                  0.72,     0.75,   0.74,   95,
+  "Asse",                     0.68,     0.60,   0.64,   63,
+  "Bolderberg",               0.00,     0.00,   0.00,   23,
+  "Brussel",                  0.77,     0.80,   0.78,  420,
+  "Diest",                    1.00,     0.74,   0.85,   19,
+  "Kwatrecht",                0.49,     0.44,   0.46,   39,
+  "Lede",                     0.70,     0.78,   0.74,  234,
+  "Merelbeke",                0.71,     0.33,   0.45,   15,
+  "Mons_en_Pevele",           0.80,     0.77,   0.78,  229,
+  "Mont_Panisel",             0.77,     0.81,   0.79,  233,
+  "Quartair",                 0.83,     0.85,   0.84,  806,
+  "Sint_Huibrechts_Hern",     0.52,     0.39,   0.45,   38,
+  "Ursel",                    0.67,     0.60,   0.63,   40,
+  "Wemmel",                   0.66,     0.60,   0.63,  105
+)
+
+# -------------------------------------------------------------------
+# 2. Define “difficulty” based on F1 (you can tweak the cut–offs)
+#    - easy   : F1 >= 0.75
+#    - medium : 0.60 <= F1 < 0.75
+#    - hard   : F1 < 0.60
+# -------------------------------------------------------------------
+metrics <- metrics %>%
+  mutate(
+    difficulty = case_when(
+      f1 >= 0.75 ~ "easy",
+      f1 >= 0.60 ~ "medium",
+      TRUE       ~ "hard"
+    ),
+    difficulty = factor(difficulty, levels = c("easy", "medium", "hard")),
+    # order layers by F1 so the plot reads from hardest (bottom) to easiest (top)
+    layer = fct_reorder(layer, f1)
+  )
+
+# -------------------------------------------------------------------
+# 3. Bar plot: which rocks are easy vs hard to predict?
+# -------------------------------------------------------------------
+p_f1 <- ggplot(metrics, aes(x = layer, y = f1, fill = difficulty)) +
+  geom_col() +
+  geom_hline(yintercept = 0.60, linetype = "dashed") +
+  geom_hline(yintercept = 0.75, linetype = "dashed") +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = "Layer / Rock type",
+    y = "F1-score",
+    fill = "Difficulty",
+    title = "Random Forest performance by layer",
+    subtitle = "Higher F1 = easier to predict; dashed lines at 0.60 and 0.75"
+  ) +
+  theme_minimal()
+
+p_f1
+```
+
+
+
+```{r}
+p_pr <- ggplot(metrics,
+               aes(x = recall, y = precision,
+                   colour = difficulty, size = support, label = layer)) +
+  geom_point(alpha = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted") +
+  ggrepel::geom_text_repel(show.legend = FALSE, max.overlaps = 100) +
+  scale_x_continuous(limits = c(0, 1), expand = expansion(mult = 0.02)) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = 0.02)) +
+  labs(
+    x = "Recall",
+    y = "Precision",
+    colour = "Difficulty",
+    size = "Support (n)",
+    title = "Precision–recall trade-off by layer",
+    subtitle = "Big, high points = well-supported & easy; small, low points = hard"
+  ) +
+  theme_minimal()
+
+p_pr
+
+```
+
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+# 1. (Assumes 'metrics' already exists from previous code.)
+
+# 2. Correlation between F1 ("accuracy") and sample size
+cor_f1_support <- cor(metrics$f1, metrics$support)
+cor_f1_support
+# You can report this number in the text, e.g.
+# "Correlation between F1-score and support = ..."
+
+# 3. Scatter plot: F1 vs support
+p_f1_support <- ggplot(metrics,
+                       aes(x = support, y = f1,
+                           colour = difficulty, label = layer)) +
+  geom_point(aes(size = support), alpha = 0.8) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  ggrepel::geom_text_repel(show.legend = FALSE, max.overlaps = 100) +
+  scale_x_continuous(trans = "log10",
+                     breaks = c(10, 20, 50, 100, 200, 500, 1000)) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = 0.02)) +
+  labs(
+    x = "Support (log10 scale)",
+    y = "F1-score (per-class accuracy proxy)",
+    colour = "Difficulty",
+    size = "Support (n)",
+    title = "Relationship between sample size and predictive performance",
+    subtitle = paste0("Dashed line = linear fit; cor(F1, support) = ",
+                      round(cor_f1_support, 2))
+  ) +
+  theme_minimal()
+
+p_f1_support
+```
