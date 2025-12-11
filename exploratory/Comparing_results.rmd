@@ -23,7 +23,8 @@ results_df <- read_csv(here("results/predictions_python_models/debug_merged_rf.c
 head(results_df)
 ```
 
-## Plotting Function
+## Plotting Function. The function below plots CPT profiles and can optionally compare true and predicted lithostratigraphic classes side-by-side for each CPT.
+
 
 ```{r}
 plot_cpt_series <- function(data,
