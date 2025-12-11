@@ -20,6 +20,19 @@ segments_oi = [
 "Mons_en_Pevele",
 ]
 
+download_columns = [
+"diepte",
+"diepte_mtaw",
+"qc",
+"fs",
+"qtn",
+"rf",
+"fr",
+"icn",
+"sbt",
+"ksbt",
+"final",
+]
 
 
 def preprocessing(args):
@@ -45,12 +58,18 @@ user_input = st.text_input(
 st.title("CPT Predictions")
 
 def load_data(filename= None):
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    INPUT_FOLDER = os.path.join(BASE_DIR, "input")
+
     if user_input != 'File':
         filename = 'input_t' +user_input + '.csv'
         input_df = data.DataSet("dashboard/input/"+filename,segments_oi, 0.05, dashboard=True).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
     else:
         input_df = data.DataSet("dashboard/input/input.csv",segments_oi, 0.05, dashboard=True).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
     closest = data.DataSet("dashboard/input/closest.csv",segments_oi, 0.05, dashboard=True).get_preprocessed(split=False, features =  ['qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt'])
+    
+
+
     return input_df, closest
 
 
@@ -84,6 +103,30 @@ if st.session_state.preprocessed:
     kdes = st.session_state.kdes
     predictions = st.session_state.predictions
 
+    if 1==1: #might remove this later
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        INPUT_FOLDER = os.path.join(BASE_DIR, "input")
+        #interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
+        # parameters for seglearn
+        width=5
+        overlap=0.1
+        seg_pred_path = os.path.join(INPUT_FOLDER, "seg_pred.txt")
+        step = int(width * (1 - overlap)) 
+        # load seglearn output and format it correctly
+        nrows = input.shape[0]
+        # seglearn reformats the length of its output based on window size and overlap
+        with open(seg_pred_path, "r") as f:
+            lines = [line.strip() for line in f if line.strip()]
+            window_labels = np.array([int(float(x)) for x in lines])
+            labels_seg = np.pad(
+                np.repeat(window_labels, step)[:nrows],
+                (0, max(0, nrows - len(np.repeat(window_labels, step)))),
+                mode='edge'
+            )
+        input["seg_pred"] = labels_seg
+        mapping = {i:j for i,j in zip(segments_oi, range(0, len(segments_oi))) if i in segments_oi}
+        input["seg_pred_labels"] = input.seg_pred.map({v: k for k, v in mapping.items()})
+        input["seg_pred_labels"], _ = smooth_one_samp(input["seg_pred_labels"], input.diepte_mtaw)
     #selected_category = st.sidebar.selectbox(
     #    "Select category",
     #    ["Predicted segments", "Segment correction", "Segment uncertainty"]
@@ -100,7 +143,8 @@ if st.session_state.preprocessed:
             "Predicted segments",
             "Segment correction",
             #"Segment uncertainty",
-            "Nearest segment"
+            "Nearest segment",
+            "Prediction Inspection"
         ]
 
     selected_category = st.sidebar.selectbox("Select category", options)
@@ -116,17 +160,28 @@ if st.session_state.preprocessed:
         if st.button("Switch data"):
             st.session_state.preprocessed = False
 
+    label_options = {
+        "Post-processed labels": "postprocessed",
+        "Seglearn prediction labels": "seg_pred_labels"
+    }
 
+    pred_source = st.selectbox(
+        "Select prediction type",
+        options=list(label_options.keys())
+    )
 
-    # We use teh selected category to show only data we want to see
+    label_column = label_options[pred_source]
+
+    # We use the selected category to show only data we want to see
     if selected_category == "Predicted segments":
+
         #fig = go.Figure()
 
         fig = px.line(
             input,
             x="diepte",
             y="icn",
-            color="postprocessed",
+            color=label_column,
             title="Predicted segments",
         )
 
@@ -219,11 +274,14 @@ if st.session_state.preprocessed:
 
 
     elif selected_category == "Segment correction": 
-        
 
-        boundaries_indices = input["postprocessed"] != input["postprocessed"].shift(1)
+
+
+        label_column = label_options[pred_source]
+
+        boundaries_indices = input[label_column] != input[label_column].shift(1)
         boundaries_diepte = input.loc[boundaries_indices, "diepte"].tolist()
-        segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+        segment_labels = input.loc[boundaries_indices, label_column].tolist()
 
         default = "\n".join([f"{label} : {diepte}" for label, diepte in zip(segment_labels, boundaries_diepte)])
         #boundaries = input["diepte"][input["postprocessed"].diff() != 0].tolist()
@@ -262,7 +320,7 @@ if st.session_state.preprocessed:
             input.loc[mask, "final"] = seg_value
         input["final"] = input["final"].ffill() # this relates to a bugfix for the plots
 
-        csv_data = input.to_csv(index=False).encode("utf-8")
+        csv_data = input[download_columns].to_csv(index=False).encode("utf-8")
 
         st.download_button(
             label="Download edited data",
@@ -286,13 +344,14 @@ if st.session_state.preprocessed:
             st.plotly_chart(fig_main, key="raw", use_container_width=True)
 
 
+        label_column = label_options[pred_source]
 
         with col_right:
             fig_postprocessed = px.line(
                 input,
                 x="icn",
                 y="diepte",
-                color="postprocessed",
+                color=label_column,
                 title="Predicted",
                 height = 600
             )
@@ -381,7 +440,7 @@ if st.session_state.preprocessed:
         st.subheader("Nearest Segment")
         col_left, col_right = st.columns(2)
 
-        csv_data = input.to_csv(index=False).encode("utf-8")
+        csv_data = input[download_columns].to_csv(index=False).encode("utf-8")
 
         st.download_button(
             label="Download edited data",
@@ -424,7 +483,7 @@ if st.session_state.preprocessed:
 
         folium.CircleMarker(
             location=[min_samp_gdf.lat.mean(), min_samp_gdf.lon.mean()],
-            radius=6,
+            radius=12,
             color="blue",
             fill=True,
             fill_color="blue",
@@ -437,7 +496,7 @@ if st.session_state.preprocessed:
             df_s = min_samp_gdf[min_samp_gdf["sondering_id"] == sid]
             folium.CircleMarker(
                 location=[df_s.lat.mean(), df_s.lon.mean()],
-                radius=5,
+                radius=12,
                 color="green" if sid != selected_id else "red",
                 fill=True,
                 fill_color="green" if sid != selected_id else "red",
@@ -454,6 +513,7 @@ if st.session_state.preprocessed:
         with open(interpolated_path, "r") as f:
             labels_gsip = [line.strip() for line in f if line.strip()]
 
+#
         proba_gsip = []
         with open(interpolated_proba_path, "r") as f:
             for line in f:
@@ -464,6 +524,8 @@ if st.session_state.preprocessed:
 
         interpolated["gsip"] = labels_gsip
         interpolated["gsip_proba"] = proba_gsip
+        interpolated["labels_seg"] = labels_seg
+
         fig_left = px.line(
             interpolated,
             x="diepte",
@@ -487,6 +549,268 @@ if st.session_state.preprocessed:
             ))
         
         st.plotly_chart(fig_left, key="gsip_left_plot")
+
+
+
+
+    elif selected_category == "Prediction Inspection":
+        # joelle's code from here on, all functions in this scope
+
+
+        def add_dual_depth_axes(fig, df_cpt, feature_name):
+
+            dmin = float(df_cpt["diepte"].min())
+            dmax = float(df_cpt["diepte"].max())
+            if dmax <= dmin:
+                return fig
+
+            n_ticks = 6  # TODO: adjust if needed
+            tickvals = list(np.linspace(dmin, dmax, num=n_ticks))
+
+            fig.update_layout(
+                yaxis=dict(
+                    title="depth [m]",
+                    autorange="reversed",
+                    side="left",
+                    tickmode="array",
+                    tickvals=tickvals,
+                    ticktext=[f"{v:.1f}" for v in tickvals],
+                    showgrid=True,
+                    gridcolor="rgba(0,0,0,0.15)",
+                )
+            )
+
+            depth_mtaw_col = None
+            for c in df_cpt.columns:
+                cl = c.lower()
+                if cl == "diepte_mtaw" or cl.startswith("diepte_mta"):
+                    depth_mtaw_col = c
+                    break
+
+            if depth_mtaw_col is None:
+                return fig
+
+            depth_mtaw_map = {}
+            for tv in tickvals:
+                idx = (df_cpt["diepte"] - tv).abs().idxmin()
+                depth_mtaw_map[tv] = float(df_cpt.loc[idx, depth_mtaw_col])
+
+            ticktext_mtaw = [f"{depth_mtaw_map[tv]:.2f}" for tv in tickvals]
+
+            fig.add_annotation(
+                xref="paper",
+                yref="paper",
+                x=1.02,
+                y=1.03,
+                text="depth mTAW [m]",
+                showarrow=False,
+                align="left",
+                font=dict(size=10, color="#777777"),
+            )
+
+            for tv, txt in zip(tickvals, ticktext_mtaw):
+                fig.add_annotation(
+                    xref="paper",
+                    yref="y",
+                    x=1.02,
+                    y=tv,
+                    text=txt,
+                    showarrow=False,
+                    align="left",
+                    font=dict(size=9, color="#777777"),
+                )
+
+            return fig
+
+
+        def detect_cpt_id_column(df):
+            """
+            TODO: extend this list if the data schema changes.
+            """
+            candidates = [
+                "sondering_id",
+                "sonderingid",
+                "sondeernummer",
+                "sondernr",
+                "cpt_id",
+                "cptid",
+            ]
+
+            lower_map = {c.lower(): c for c in df.columns}
+
+            for name in candidates:
+                if name in lower_map:
+                    return lower_map[name]
+
+            return None
+
+
+
+        df_inspection_input = copy_samp_gdp.copy()
+        st.subheader("CPT inspection: ground truth vs predictions")
+
+        data_source = st.radio(
+            "Data source",
+            ["Selected CPT (input)", "Nearest labelled CPTs"],
+            horizontal=True,
+        )
+
+        if data_source.startswith("Selected"):
+            df_source = df_inspection_input.copy()
+        else:
+            df_source = closest.copy()
+
+        # try to detect a CPT id column (sondering_id / sondeernummer / etc.)
+
+        cpt_col = detect_cpt_id_column(df_source)
+
+        if cpt_col is None:
+            st.info("No CPT id column (sondering_id / sondeernummer / ...) found → using entire dataset as one CPT.")
+            df_cpt = df_source.copy()
+            selected_id = "all_rows"
+        else:
+            cpt_ids = df_source[cpt_col].unique()
+            cpt_ids = np.sort(cpt_ids)
+
+            selected_id = st.selectbox(cpt_col, cpt_ids)
+            df_cpt = df_source[df_source[cpt_col] == selected_id].copy()
+
+
+        if df_cpt.empty:
+            st.warning("No rows found for this CPT in the selected source.")
+        else:
+            candidate_features = ["qc", "fs", "qtn", "rf", "fr", "icn", "sbt", "ksbt"]
+            available_features = [f for f in candidate_features if f in df_cpt.columns]
+
+            if not available_features:
+                st.warning("No numeric CPT features found (e.g. qc/fs/qtn).")
+            else:
+                feature = st.selectbox(
+                    "Numeric CPT feature on x-axis",
+                    available_features,
+                )
+
+                has_gt = (
+                    "lithostrat_id" in df_cpt.columns
+                    and df_cpt["lithostrat_id"].notna().any()
+                )
+
+                if "final" in df_cpt.columns and df_cpt["final"].notna().any():
+                    pred_col = "final"
+                elif (
+                    "postprocessed" in df_cpt.columns
+                    and df_cpt["postprocessed"].notna().any()
+                ):
+                    pred_col = "postprocessed"
+                elif (
+                    "predictions" in df_cpt.columns
+                    and df_cpt["predictions"].notna().any()
+                ):
+                    pred_col = "predictions"
+                else:
+                    pred_col = None # TODO: maybe fall back to raw model output
+
+                # decide what to plot: GT, prediction, or both
+                if has_gt and pred_col is not None:
+                    mode = st.radio(
+                        "Labels to display",
+                        ["Ground truth only", "Prediction only", "Ground truth vs prediction"],
+                        index=2,
+                    )
+                elif has_gt:
+                    mode = "Ground truth only"
+                elif pred_col is not None:
+                    mode = "Prediction only"
+                else:
+                    st.warning("No ground truth or prediction labels available for this CPT.")
+                    mode = None
+
+                # pick an id column if we found one; otherwise skip it in the table
+                id_cols = [cpt_col] if (cpt_col is not None and cpt_col in df_cpt.columns) else []
+
+                cols_to_show = [
+                    c
+                    for c in (
+                        id_cols
+                        + [
+                            "diepte",
+                            "diepte_mtaw",
+                            feature,
+                            "lithostrat_id",
+                            pred_col,
+                        ]
+                    )
+                    if c is not None and c in df_cpt.columns
+                ]
+
+                if mode is not None:
+
+                    def make_line_fig(data, color_col, title):
+                        data_sorted = data.sort_values("diepte")
+                        fig = px.line(
+                            data_sorted,
+                            x=feature,
+                            y="diepte",
+                            color=color_col,
+                            title=title,
+                            height=700,
+                        )
+                        fig = add_dual_depth_axes(fig, data_sorted, feature_name=feature)
+                        return fig
+
+                    if mode == "Ground truth vs prediction" and has_gt and pred_col is not None:
+                        # two plots side by side + table below
+                        col_gt, col_pred = st.columns(2)
+
+                        with col_gt:
+                            df_gt = df_cpt[df_cpt["lithostrat_id"].notna()]
+                            fig_gt = make_line_fig(
+                                df_gt,
+                                "lithostrat_id",
+                                f"Ground truth vs {feature} (sondering_id={selected_id})",
+                            )
+                            st.plotly_chart(fig_gt, use_container_width=True)
+
+                        with col_pred:
+                            fig_pred = make_line_fig(
+                                df_cpt,
+                                pred_col,
+                                f"Predicted segments ({pred_col}) vs {feature} (sondering_id={selected_id})",
+                            )
+                            st.plotly_chart(fig_pred, use_container_width=True)
+
+                        st.markdown("### Raw data for this CPT")
+                        if cols_to_show:
+                            st.dataframe(df_cpt[cols_to_show].head(500))
+                        else:
+                            st.info("No suitable columns selected for raw data table.")
+
+                    else:
+                        # single plot (either GT or prediction) + table on the right
+                        plot_col, table_col = st.columns([3, 2])
+                        with plot_col:
+                            if mode == "Ground truth only" and has_gt:
+                                df_gt = df_cpt[df_cpt["lithostrat_id"].notna()]
+                                fig = make_line_fig(
+                                    df_gt,
+                                    "lithostrat_id",
+                                    f"Ground truth vs {feature} (sondering_id={selected_id})",
+                                )
+                            else:  # "Prediction only"
+                                fig = make_line_fig(
+                                    df_cpt,
+                                    pred_col,
+                                    f"Predicted segments ({pred_col}) vs {feature} (sondering_id={selected_id})",
+                                )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                        with table_col:
+                            st.markdown("### Raw data")
+                            if cols_to_show:
+                                st.dataframe(df_cpt[cols_to_show].head(500))
+                            else:
+                                st.info("No suitable columns selected for raw data table.")
+
 
 
 

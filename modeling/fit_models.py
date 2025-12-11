@@ -65,7 +65,7 @@ features = ["x", "y", "diepte_mtaw"]
 
 df = df[df["lithostrat_id"].isin(segments_oi)]
 y = df["lithostrat_id"]
-X = df[features]
+X = df[features].copy()
 
 ss = StandardScaler()
 model0 = KNeighborsClassifier(n_neighbors = 5)
@@ -78,3 +78,39 @@ with open('geospatial_interpolation.pkl', 'wb') as f:
 
 
 #############
+
+############# fit seglearn model
+import seglearn
+
+
+mapping = {i:j for i,j in zip(segments_oi, range(0, len(segments_oi))) if i in segments_oi}
+df["lithostrat_int"] = df.lithostrat_id.map(mapping)
+
+features = ['diepte_mtaw','qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
+
+# Construct Xt separately for train and test
+def Xt_transform(df, cols):
+    """Returns time series features for the seglern library"""
+    Xt = df[cols].values.astype(np.float32)
+    return Xt
+
+X = df.copy()
+#X.drop(["x","y","diepte"], inplace=True)
+X= X[features]
+X = Xt_transform(X, features)
+
+y = df["lithostrat_int"]
+
+
+
+pipe = Pype([('segment', SegmentX(width=5, overlap=0.1)),
+    ('features', FeatureRep()),
+    ('scaler', StandardScaler()),
+    ('rf', RandomForestClassifier())])
+
+pipe.fit([X], [y.values])
+score = pipe.score([X], [y.values])
+print(f"seglearn score : {score}")
+
+with open('seglearn_rf.pkl', 'wb') as f:
+    pkl.dump(pipe, f)

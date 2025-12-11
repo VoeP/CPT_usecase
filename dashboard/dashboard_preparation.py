@@ -1,13 +1,41 @@
 import pandas as pd
 import os
 import pickle as pkl
-from paths_cpt import PATH_TO_GEOSPATIAL
+from paths_cpt import PATH_TO_GEOSPATIAL, PATH_TO_SEGLEARN
 import numpy as np
+import seglearn
+from seglearn.transform import FeatureRep, SegmentX
+from seglearn.pipe import Pype
+from seglearn.datasets import load_watch
 
 path = "C:/Users/volte/Downloads/vw_cpt_brussels_params_completeset_20250318_remapped.parquet" # change this
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INPUT_FOLDER = os.path.join(BASE_DIR, "input")
 
+
+segments_oi = [
+"Quartair",
+"Diest",
+"Bolderberg",
+"Sint_Huibrechts_Hern",
+"Ursel",
+"Asse",
+"Wemmel",
+"Lede",
+"Brussel",
+"Merelbeke",
+"Kwatrecht",
+"Mont_Panisel",
+"Aalbeke",
+"Mons_en_Pevele",
+]
+
+
+def seglearn_prep(df):
+    mapping = {i:j for i,j in zip(segments_oi, range(0, len(segments_oi))) if i in segments_oi}
+    df["lithostrat_int"] = df.lithostrat_id.map(mapping)
+
+    features = ['diepte_mtaw','qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
 
 def preprocessing(user_choice):
     path_to_parquet = path
@@ -15,6 +43,10 @@ def preprocessing(user_choice):
     
     with open(PATH_TO_GEOSPATIAL, "rb") as f:
         geospatial = pkl.load(f)
+
+    with open(PATH_TO_SEGLEARN, "rb") as f:
+        seglearn_rf = pkl.load(f)
+
     sonderings = df["sondering_id"].unique()
     #pick_one = df[df["sondering_id"] == sonderings[0]]
     #pick_one.to_csv("input/input.csv", index=False)
@@ -37,6 +69,22 @@ def preprocessing(user_choice):
     x = input["x"].iloc[0]
     y = input["y"].iloc[0]
 
+    seg_features = ['diepte_mtaw','qc', 'fs', 'qtn', 'rf', 'fr', 'icn', 'sbt', 'ksbt']
+    seg_input = input[seg_features]
+
+
+    ## Define paths
+    interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
+    seg_path = os.path.join(INPUT_FOLDER, "seg_pred.txt")
+
+
+
+    print(seg_input)
+    seg_predictions = seglearn_rf.predict([seg_input.values])
+    with open(seg_path, "w") as f:
+        for row in seg_predictions:
+            f.write(str(row) + "\n")
+
     df["dist"] = (df["x"] - x)**2 + (df["y"] - y)**2
 
     df_nomissing = df[~((df["lithostrat_id"].isna()) | (df["lithostrat_id"]=="None") \
@@ -44,7 +92,7 @@ def preprocessing(user_choice):
     closest_ids = df_nomissing.groupby("sondering_id")["dist"].min().nsmallest(10).index.tolist()
     closest = df[df["sondering_id"].isin(closest_ids)]
     closest_path = os.path.join(INPUT_FOLDER, "closest.csv")
-    interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
+
     closest.to_csv(closest_path, index=False)
     with open(interpolated_path, "w") as f:
         for row in interpolated:
