@@ -104,6 +104,7 @@ if st.session_state.preprocessed:
     predictions = st.session_state.predictions
 
     if 1==1: #might remove this later
+        
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         INPUT_FOLDER = os.path.join(BASE_DIR, "input")
         #interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
@@ -112,8 +113,10 @@ if st.session_state.preprocessed:
         overlap=0.1
         seg_pred_path = os.path.join(INPUT_FOLDER, "seg_pred.txt")
         step = int(width * (1 - overlap)) 
+
         # load seglearn output and format it correctly
         nrows = input.shape[0]
+
         # seglearn reformats the length of its output based on window size and overlap
         with open(seg_pred_path, "r") as f:
             lines = [line.strip() for line in f if line.strip()]
@@ -127,6 +130,20 @@ if st.session_state.preprocessed:
         mapping = {i:j for i,j in zip(segments_oi, range(0, len(segments_oi))) if i in segments_oi}
         input["seg_pred_labels"] = input.seg_pred.map({v: k for k, v in mapping.items()})
         input["seg_pred_labels"], _ = smooth_one_samp(input["seg_pred_labels"], input.diepte_mtaw)
+
+
+        # we separately extract the probabilities
+        seg_proba_path = os.path.join(INPUT_FOLDER, "seg_pred_proba.txt")
+        with open(seg_proba_path, "r") as f:
+            lines = [line.strip() for line in f if line.strip()]
+            window_labels = np.array([float(x) for x in lines])
+            labels_seg = np.pad(
+                np.repeat(window_labels, step)[:nrows],
+                (0, max(0, nrows - len(np.repeat(window_labels, step)))),
+                mode='edge'
+            )
+        input["probability_2"] = labels_seg
+
     #selected_category = st.sidebar.selectbox(
     #    "Select category",
     #    ["Predicted segments", "Segment correction", "Segment uncertainty"]
@@ -172,19 +189,47 @@ if st.session_state.preprocessed:
 
     label_column = label_options[pred_source]
 
+    if label_column == "postprocessed":
+        hover_cols = ["probability_1"]
+    elif label_column == "seg_pred_labels":
+        hover_cols = ["probability_2"]
+    else:
+        hover_cols = None
+
     # We use the selected category to show only data we want to see
     if selected_category == "Predicted segments":
 
         #fig = go.Figure()
-
+        ribbon_scale = 0.5
         fig = px.line(
             input,
             x="diepte",
             y="icn",
             color=label_column,
             title="Predicted segments",
+            hover_data=hover_cols,
+            height = 750,
+            width = 1600
         )
+        ribbon_color = "rgba(255, 255, 255, 0.15)"
+        fig.add_trace(go.Scatter(
+            x=input["diepte"],
+            y=input["icn"] + (1 - input[hover_cols[0]]),
+            fill=None,
+            line=dict(color=ribbon_color),
+            hoverinfo="skip",
+            showlegend=False
+        ))
 
+        fig.add_trace(go.Scatter(
+            x=input["diepte"],
+            y=input["icn"] - (1 - input[hover_cols[0]]),
+            fill='tonexty',
+            line=dict(color=ribbon_color),
+            hoverinfo="skip",
+            opacity=0.25,
+            showlegend=False
+        ))
         st.plotly_chart(fig, key="postprocessed")
 
 

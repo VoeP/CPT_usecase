@@ -202,9 +202,12 @@ def internal_logic(input, closest):
                     "diepte_sondering_tot", "lithostrat_id"], axis=1, inplace=True)
 
     predictions = exported_model.predict(input)
+    probas = exported_model.predict_proba(input)
+    probas = probas.max(axis=1)
 
     # we create some predictions
     input["predictions"] = predictions
+    input["probability_1"] = probas
 
     input["postprocessed"] = correct_labels(predictions)
 

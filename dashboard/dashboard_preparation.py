@@ -76,13 +76,20 @@ def preprocessing(user_choice):
     ## Define paths
     interpolated_path = os.path.join(INPUT_FOLDER, "interpolated.txt")
     seg_path = os.path.join(INPUT_FOLDER, "seg_pred.txt")
+    seg_proba_path = os.path.join(INPUT_FOLDER, "seg_pred_proba.txt")
 
 
 
     print(seg_input)
     seg_predictions = seglearn_rf.predict([seg_input.values])
+    seg_proba = seglearn_rf.predict_proba([seg_input.values])
+    seg_proba = seg_proba.max(axis=1)
     with open(seg_path, "w") as f:
         for row in seg_predictions:
+            f.write(str(row) + "\n")
+
+    with open(seg_proba_path, "w") as f:
+        for row in seg_proba:
             f.write(str(row) + "\n")
 
     df["dist"] = (df["x"] - x)**2 + (df["y"] - y)**2
