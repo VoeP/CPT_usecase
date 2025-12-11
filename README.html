@@ -602,7 +602,8 @@ padding-top: 0px;
 <body>
 
 <h1 id="cpt-usecase-github-document">CPT USECASE GitHub Document</h1>
-<h2 id="cpt-usecase">CPT usecase</h2>
+<h2 id="cpt-usecase---lithostratigraphy-modelling">CPT Usecase -
+Lithostratigraphy Modelling</h2>
 <p>modeling/ contains notebooks and scripts for model building</p>
 <p>dashbord/ contains streamlit dashboard scripts</p>
 <p>You need to add your aboslute paths to the paths_cpt_file for it to
@@ -611,8 +612,40 @@ idea there is that we can change this logic later to use environment
 variables instead to run this in different environments. For the
 dashboard to work, you need to also create the pickle of the model by
 running the EDA.ipynb (or whatever other method).</p>
-<h2 id="data-processing">Data Processing</h2>
-<h3 id="the-binning-method">The binning method</h3>
+<p>This README explains:</p>
+<ul>
+<li>how the data is processed (binning pipeline),</li>
+<li>how to run the preprocessing scripts,</li>
+<li>how to train / evaluate models,</li>
+<li>how to run the dashboard.</li>
+</ul>
+<h2 id="repository-structure">Repository structure</h2>
+<ul>
+<li><a href="./dashboard"><strong>dashboard/</strong></a> - Streamlit
+dashboard files</li>
+<li><a href="./Documentation"><strong>Documentation/</strong></a> -
+Reports, slides, background docs</li>
+<li><a href="./exploratory"><strong>exploratory/</strong></a> - EDA
+notebooks and quick experiments</li>
+<li><a href="./modeling"><strong>modeling/</strong></a> - Reusable
+scripts + modelling notebooks</li>
+<li><a href="./results"><strong>results/</strong></a> - Processed data,
+splits, model outputs</li>
+<li><a href="./README.md"><strong>README.md</strong></a> - This
+file</li>
+<li><a href="./README.Rmd"><strong>README.Rmd</strong></a> - RMarkdown
+source for README.md</li>
+<li><a href="./requirements.txt"><strong>requirements.txt</strong></a> -
+Python dependencies</li>
+<li><a href="./run_dashboard.bat"><strong>run_dashboard.bat</strong></a>
+- Helper script to start the dashboard on Windows</li>
+</ul>
+<h2 id="setup">Setup</h2>
+<p>Create a virtual environment and install dependencies: pip install -r
+requirements.txt The path configuration for CPT data is in path_cpt.py
+(This can can be replaced by environment variables)</p>
+<h3 id="data-processing">Data Processing</h3>
+<h4 id="binning-pipeline-code"><a href="./modeling/data_processing.py">Binning pipeline code</a></h4>
 <p>The goal is to turn noisy CPT measurements along depth into clean,
 comparable slices (bins) with summary features.</p>
 <ul>
@@ -661,11 +694,24 @@ mean. Missing and infinite values are forward/backward filled.</li>
 <p>Run the preprocessing from the repo root with optional flags to
 control behavior:</p></li>
 </ul>
-<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="ex">python</span> modeling/data_processing.py <span class="at">--extract_trend</span> True <span class="at">--bin_w</span> 0.6 <span class="at">--seed</span> 42 <span class="at">--trend_type</span> additive <span class="at">--data_folder</span> data <span class="at">--results_folder</span> results</span></code></pre></div>
-<ul>
-<li>To run with default parameters, simply run:</li>
-</ul>
-<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="ex">python</span> modeling/data_processing.py</span></code></pre></div>
+<p>Inport the script as a module and in your modelling script run it as
+shown below</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>train_processed <span class="op">=</span> dp.process_test_train(</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>    cpt_df<span class="op">=</span>cpt_data,</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>    sondering_ids<span class="op">=</span>train_ids,</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>    bin_w<span class="op">=</span>BIN_W,</span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>    do_extract_trend<span class="op">=</span>EXTRACT_TREND,</span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>    trend_type<span class="op">=</span>TREND_TYPE</span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>)</span>
+<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Processing test data...&quot;</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>test_processed <span class="op">=</span> dp.process_test_train(</span>
+<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>    cpt_df<span class="op">=</span>cpt_data,</span>
+<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a>    sondering_ids<span class="op">=</span>test_ids,</span>
+<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a>    bin_w<span class="op">=</span>BIN_W,</span>
+<span id="cb1-14"><a href="#cb1-14" tabindex="-1"></a>    do_extract_trend<span class="op">=</span>EXTRACT_TREND,</span>
+<span id="cb1-15"><a href="#cb1-15" tabindex="-1"></a>    trend_type<span class="op">=</span>TREND_TYPE</span>
+<span id="cb1-16"><a href="#cb1-16" tabindex="-1"></a>)</span></code></pre></div>
 <p>Arguments:</p>
 <ul>
 <li>extract_trend toggles per-borehole detrending;</li>
@@ -684,14 +730,98 @@ reproduce the exact train/test split by loading results/split_res.json
 (pickled dict with keys train_ids and test_ids) and filtering your
 dataset by sondering_id accordingly. This guarantees consistency with
 the split used to generate the binned outputs.</p>
-<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="im">import</span> json</span>
-<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="cf">with</span> <span class="bu">open</span>(<span class="st">&quot;results/split_res.json&quot;</span>, <span class="st">&quot;r&quot;</span>) <span class="im">as</span> f:</span>
-<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    test_train <span class="op">=</span> json.load(f)</span>
-<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a><span class="co">#print(&quot;IDS&quot;, test_train)</span></span>
-<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Train IDs:&quot;</span>, test_train[<span class="st">&quot;train_ids&quot;</span>])</span></code></pre></div>
-<pre><code>## Train IDs: [4875, 4476, 4877, 4551, 1135, 4574, 4617, 4869, 3648, 4674, 316, 13184, 4678, 13081, 4833, 4560, 3749, 4643, 4417, 4868, 3745, 2924, 3658, 4747, 4445, 3386, 3724, 3804, 4659, 3663, 4582, 4767, 4807, 3892, 3646, 14010, 13295, 496, 3399, 13298, 13288, 1931, 4660, 4449, 4594, 4437, 4918, 4665, 552, 13140, 4866, 495, 1580, 377, 3678, 4425, 4383, 13289, 4524, 13167, 3667, 3666, 4811, 4629, 13203, 3674, 375, 1928, 4415, 3662, 14008, 4775, 1933, 14001, 4440, 4912, 3712, 4876, 13285, 319, 13180, 3676, 4614, 3806, 3670, 14007, 4768, 3387, 4640, 4873, 4579, 3644, 4624, 4865, 4810, 13066, 3681, 3891, 554, 3661, 4578, 4759, 3748, 3400, 13300, 555, 13125, 13267, 4429, 3682, 2699, 4835, 2752, 14013, 14006, 3643, 4510, 4407, 4472, 4917, 494, 13113, 3655, 14004, 4646, 4677, 4806, 3389, 13211, 13057, 4809, 4815, 4919, 4647, 3675, 3651, 4481, 13257, 1578, 4442, 376, 2923, 3398, 550, 4740, 4913, 13063, 13117, 13067, 551, 13297, 4648, 13145, 14000, 4517, 4886, 4408, 553, 1930, 4473, 4564, 4878, 1775, 13010, 14003, 4547, 4605, 1579, 4808, 13131, 4794, 4409, 3660, 497, 1848, 3808, 4776, 1929, 4482, 4441, 4915, 3746, 4515, 4843, 13095, 3656, 13001, 4464, 4382, 13094, 3893, 4910, 4557, 4455, 4874, 3647, 3652, 1932, 4761]</code></pre>
-<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Test   IDs:&quot;</span>, test_train[<span class="st">&quot;test_ids&quot;</span>])</span></code></pre></div>
-<pre><code>## Test   IDs: [3807, 3665, 4569, 4521, 315, 1581, 4887, 3809, 4828, 4424, 4814, 4785, 4411, 4772, 4460, 13110, 13138, 3671, 1156, 1834, 3805, 4410, 14011, 3385, 374, 3397, 4537, 4518, 13143, 4737, 3388, 13068, 13062, 13286, 14009, 13159, 1158, 4916, 14005, 3653, 13091, 4821, 13206, 3679, 4514, 13006, 4540, 3664, 13105, 4448, 13166, 2705, 3672, 3654, 3669, 4619, 3894, 3683, 3720, 4889, 3747, 13004, 4736, 4858, 1823, 3722, 3739, 13160, 3677, 3680, 4438, 4860, 2702, 2916, 4820, 493, 4745, 13142, 4658, 4902, 314, 3723, 3657, 4867, 1927, 4596]</code></pre>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="im">import</span> json</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="cf">with</span> <span class="bu">open</span>(<span class="st">&quot;results/split_res.json&quot;</span>, <span class="st">&quot;r&quot;</span>) <span class="im">as</span> f:</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>    test_train <span class="op">=</span> json.load(f)</span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co">#print(&quot;IDS&quot;, test_train)</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Train IDs:&quot;</span>, test_train[<span class="st">&quot;train_ids&quot;</span>])</span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Test   IDs:&quot;</span>, test_train[<span class="st">&quot;test_ids&quot;</span>])</span></code></pre></div>
+<h4 id="data-modules"><a href="./modeling/data_modules.py">Data
+Modules</a></h4>
+<h3 id="models-folder"><a href="./modeling">Models Folder</a></h3>
+<p>This folder contains the model training and evaluation notebooks and
+scripts.</p>
+<h4 id="knn-model--hmm-experimentation"><a href="./modeling/modeling_voep.ipynb">KNN Model &amp; HMM
+Experimentation</a></h4>
+<p>say something about this notebook</p>
+<h4 id="geaospatial-interpolation-model"><a href="./modeling/geospatial_model.py">Geaospatial interpolation
+Model</a></h4>
+<p>say something about this script</p>
+<h4 id="fit-models"><a href="./modeling/fit_models.py">Fit
+Models</a></h4>
+<p>say something about this script</p>
+<h4 id="binning-models"><a href="./modeling/binn_method_modelling.ipynb">Binning Models</a></h4>
+<p>To handle the high-resolution nature of Cone Penetration Test (CPT)
+data, this workflow implements a feature engineering strategy based on
+depth binning. Raw sensor measurements are aggregated into fixed-width
+intervals (0.6m), extracting statistical summaries and trend features to
+reduce noise and dimensionality.</p>
+<p>We trained and tuned three tree-based ensemble classifiers—XGBoost,
+Random Forest, and LightGBM—using RandomizedSearchCV to optimize</p>
+<p>performance. Evaluation is conducted in two stages: first on the
+aggregated test bins, and subsequently by propagating predictions back
+to the raw, unbinned dataset to assess the model’s granular accuracy
+across specific lithostratigraphic units.</p>
+<h4 id="crm-model"><a href="./modeling/model_CRM_Dorothy.ipynb">CRM
+Model</a></h4>
+<p>say something about this notebook</p>
+<h3 id="exploratory-analysis">Exploratory Analysis</h3>
+<h4 id="folder-with-eda-notebooks-and-comparison-of-model-results"><a href="./exploratory">Folder with EDA notebooks and comparison of model
+results</a></h4>
+<p>Initial data checks can be found here some of it is also within the
+modeling notebooks.</p>
+<h3 id="dashboard">Dashboard</h3>
+<h4 id="streamlit-dashboard-code">Streamlit dashboard code</h4>
+<p>say something about the dashboard</p>
+<ul>
+<li><a href="./dashboard/dashboard_internals.py">Dashboard
+internals</a></li>
+<li><a href="./dashboard/dashboard_scripts.py">Dashboard main
+script</a></li>
+<li><a href="./dashboard/dashboard_preparation.py">Dashboard preparation
+script</a></li>
+</ul>
+<h5 id="how-to-run-streamlit-dashboard">How to run streamlit
+dashboard</h5>
+<p>Give more details on how to Run the streamlit dashboard</p>
+<ul>
+<li><a href="./run_dashboard.bat">Running the Dashboard script
+windows</a></li>
+<li><a href="./run_dashboard.sh">Running the Dashboard script
+linux</a></li>
+</ul>
+<h4 id="other-tried-frameworks-plotly-dash">Other Tried Frameworks
+(Plotly Dash)</h4>
+<ul>
+<li><a href="./dashboard/app.py">Dash App</a></li>
+</ul>
+<h5 id="how-to-run">How to run</h5>
+<ul>
+<li>From terminal run: python dashboard/app.py</li>
+<li>You will see the link to open in the terminal once the server is
+running.</li>
+<li>Open the link in your browser to access the dashboard.</li>
+<li>Data upload use csv file with same structure as data provided by
+VITO</li>
+<li>Example data set <a href="data/test_raw_data.csv">test data</a></li>
+<li>required packages</li>
+<li><a href="./results/models/best_rf_model.pkl">Model used is the
+RandomForest model pickle provided in the repo</a></li>
+<li><a href="./results/models/label_encoder.pkl">Labeler used is the
+label encoder pickle provided in the repo</a></li>
+</ul>
+<pre class="text"><code>numpy
+pandas
+dash
+plotly
+joblib
+matplotlib
+fastparquet
+scikit-learn</code></pre>
+<ul>
+<li>copy packages in a text file text_file_name.txt and run pip install
+-r text_file_name.txt to install all packages at once.</li>
+</ul>
 
 </body>
 </html>
