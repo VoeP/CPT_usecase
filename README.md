@@ -179,9 +179,19 @@ aggregated test bins, and subsequently by propagating predictions back
 to the raw, unbinned dataset to assess the model’s granular accuracy
 across specific lithostratigraphic units.
 
-#### [CRM Model](./modeling/model_CRM_Dorothy.ipynb)
+#### [CRM Model](./modeling/model_CRM.py)
 
-say something about this notebook
+Sequence-aware Conditional Random Field (CRF) model predicts lithostratigraphic units from CPT depth profiles.
+For each CPT has feature vectors ordered by depth and treated as a sequence, with the corresponding lithostratigraphic units
+as the sequence of target labels. This yields one feature sequence and one label sequence per borehole, which the CRF then models
+jointly along depth.
+
+These sequences are then used to train a linear-chain CRF that models both the relationship between features and labels at each depth
+and the dependencies between neighbouring lithostrat labels along depth.
+The model is implemented with the L-BFGS optimiser and all_possible_transitions=True, and its regularisation hyperparameters are tuned with RandomizedSearchCV
+using a sequence-aware F1 scorer and cross-validation on the training CPTs.
+Entire CPTs are kept either in the training or in the test set to avoid leakage along depth.
+The final CRF reaches about 58% test accuracy (weighted F1 ≈ 0.571) on held-out CPTs, and its trained weights are saved as a reusable model that can be loaded for further analysis and visualisation in the dashboard.
 
 ### Exploratory Analysis
 
