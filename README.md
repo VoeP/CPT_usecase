@@ -153,15 +153,32 @@ scripts.
 
 #### [KNN Model & HMM Experimentation](./modeling/modeling_voep.ipynb)
 
-say something about this notebook
+modeling_voep.ipynb implements a K‑Nearest Neighbors (KNN) model for local, feature‑based prediction
+s and a Hidden Markov Model (HMM) to capture sequential structure and enforce geologically plausible
+state transitions. The KNN provides pointwise estimates by averaging nearby samples in feature space
+(tunable k and distance metric) to capture local variability and produce probabilistic or continuous outputs;
+the HMM models depth-wise or profile-wise state dynamics via learned transition and emission parameters,
+using Viterbi/posterior decoding to segment profiles, smooth noisy predictions, and quantify sequence uncertainty.
+Combined, the KNN gives accurate local predictions while the HMM adds context-aware smoothing and state-segmentation,
+improving interpretability and robustness for subsurface profiling
 
 #### [Geaospatial interpolation Model](./modeling/geospatial_model.py)
 
-say something about this script
+This model builds continuous spatial prediction surfaces by combining spatial feature engineering with spatially-aware modeling.
+It converts spatial locations and auxiliary layers into predictive features, fits models that capture spatial structure (for example local regressors, kriging/Gaussian-process style interpolators, or ensemble learners that incorporate spatial covariates),
+interpolates model outputs to a regular grid, and estimates per-location uncertainty (prediction intervals or kriging variance).
+The module also applies spatial validation and smoothing/post-processing to produce geologically plausible, ready-to-map rasters and
+saved model artifacts for downstream visualization and analysis.
+
+
 
 #### [Fit Models](./modeling/fit_models.py)
 
-say something about this script
+This model coordinates training, selection, and evaluation across the project’s feature pipelines.
+It constructs end-to-end training workflows: builds preprocessing/feature pipelines, fits configurable estimators (e.g., tree ensembles, linear models, or other scikit-learn-compatible learners),
+runs hyperparameter search and cross-validation, and evaluates models with standard metrics and calibration checks.
+The script supports model comparison and ensembling, persists trained model artifacts and metadata, and produces evaluation summaries and diagnostics (learning curves, feature importances, confusion/misclassification analyses).
+Its role is orchestration—turning prepared features into validated, production-ready models that downstream modules can load for prediction and analysis.
 
 #### [Binning Models](./modeling/binn_method_modelling.ipynb)
 
@@ -204,8 +221,11 @@ modeling notebooks.
 
 #### Streamlit dashboard code
 
-say something about the dashboard
+dashboard_internals.py — Provides the app's reusable building blocks: cached data loaders, data-filtering and feature‑extraction utilities, plotting and mapping helpers (for Plotly/folium/GeoPandas), and model‑inference wrappers that load trained models and produce profile or spatial predictions. It encapsulates business logic and presentation helpers so the Streamlit UI stays thin and responsive
 
+dashboard_scripts.py — The Streamlit application entrypoint: defines layout and UI controls (sidebars, selectors, model/parameter choices), reacts to user inputs, invokes dashboard_internals to run inference and generate visualizations, and renders interactive maps, profiles, and metrics. It manages session state and caching to keep interactions fast and handles user-driven exports/downloads.
+
+dashboard_preparation.py — Prepares and caches data and artifacts used by the dashboard: runs preprocessing pipelines, computes derived spatial layers or aggregated summaries, and optionally precomputes model output tiles or profile caches to accelerate the interactive app. Intended to be run ahead of launching the dashboard so the UI serves preprocessed, ready-to-render content.
 - [Dashboard internals](./dashboard/dashboard_internals.py)
 - [Dashboard main script](./dashboard/dashboard_scripts.py)
 - [Dashboard preparation script](./dashboard/dashboard_preparation.py)
