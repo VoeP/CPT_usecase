@@ -276,7 +276,7 @@ def process_test_train(
                            .apply(_trend_and_fill))
 
     # Stats for binning + whole
-    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte", "diepte_mtaw"] if c in df.columns]
+    feat_cols = [c for c in ["qc", "fs", "rf", "qtn", "fr", "diepte","diepte_mtaw"] if c in df.columns] #, "diepte""diepte_mtaw"
     geog_cols = [c for c in ["diepte", "diepte_mtaw"] if c in df.columns]
 
     # np stats with na handling
@@ -291,9 +291,12 @@ def process_test_train(
     def mad_na(x):
         med = np.nanmedian(x)
         return float(np.nanmedian(np.abs(x - med)))
-    def q10(x): return float(np.nanpercentile(x, 10))
-    def q50(x): return float(np.nanpercentile(x, 50))
-    def q90(x): return float(np.nanpercentile(x, 90))
+    def q10(x):
+        return float(np.nanpercentile(x, 10))
+    def q50(x): 
+        return float(np.nanpercentile(x, 50))
+    def q90(x): 
+        return float(np.nanpercentile(x, 90))
 
     def cv(x):
         m = np.nanmean(x)
@@ -389,6 +392,7 @@ def process_test_train(
     # aggregations
     summaries_bin = agg_features(df, feat_cols, [id_col, "depth_bin"], stats) if feat_cols else pd.DataFrame()
     summaries_whole = agg_features(df, geog_cols, [id_col], stats, suffix="_whole") if geog_cols else pd.DataFrame()
+    #summaries_whole = pd.DataFrame()
 
     # merge
     if summaries_bin.empty and not summaries_whole.empty:

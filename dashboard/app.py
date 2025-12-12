@@ -162,7 +162,7 @@ app = dash.Dash(__name__, external_stylesheets=["assets/vito.css"])
 app.layout = html.Div([
     html.H1("CPT Lithostratigraphy Prediction Dashboard", style={'textAlign': 'center'}),
     
-    # 1. Data Upload
+    # Data Upload
     html.Div([
         dcc.Upload(
             id='upload-data',
@@ -177,7 +177,7 @@ app.layout = html.Div([
         html.Div(id='upload-status')
     ]),
     
-    # NEW: Raw Data Preview
+    # Raw Data Preview
     html.Div([
         html.H5("Uploaded Data Preview (First 5 rows)"),
         dash_table.DataTable(
@@ -187,7 +187,7 @@ app.layout = html.Div([
         )
     ], style={'margin': '20px', 'padding': '10px', 'border': '1px solid #ddd'}),
 
-    # 2. Controls
+    # Controls
     html.Div([
         html.Label("Select Sondering IDs (Max 3):"),
         dcc.Dropdown(id='sondering-dropdown', multi=True),
