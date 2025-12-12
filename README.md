@@ -315,4 +315,4 @@ scikit-learn
 
 - [Feature importance csv](./results/rf_permutation_importance.csv)
 
-- [Model predictive analysis results](./results/results_section.md)
+- [Model predictive analysis results](./exploratory/results_section.md)
