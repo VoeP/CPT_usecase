@@ -146,6 +146,8 @@ print("Test   IDs:", test_train["test_ids"])
 
 #### [Data Modules](./modeling/data_modules.py)
 
+Scripts for Geospatial model
+
 ### [Models Folder](./modeling)
 
 This folder contains the model training and evaluation notebooks and
@@ -153,32 +155,47 @@ scripts.
 
 #### [KNN Model & HMM Experimentation](./modeling/modeling_voep.ipynb)
 
-modeling_voep.ipynb implements a K‑Nearest Neighbors (KNN) model for local, feature‑based prediction
-s and a Hidden Markov Model (HMM) to capture sequential structure and enforce geologically plausible
-state transitions. The KNN provides pointwise estimates by averaging nearby samples in feature space
-(tunable k and distance metric) to capture local variability and produce probabilistic or continuous outputs;
-the HMM models depth-wise or profile-wise state dynamics via learned transition and emission parameters,
-using Viterbi/posterior decoding to segment profiles, smooth noisy predictions, and quantify sequence uncertainty.
-Combined, the KNN gives accurate local predictions while the HMM adds context-aware smoothing and state-segmentation,
-improving interpretability and robustness for subsurface profiling
+modeling_voep.ipynb implements a K‑Nearest Neighbors (KNN) model for
+local, feature‑based prediction s and a Hidden Markov Model (HMM) to
+capture sequential structure and enforce geologically plausible state
+transitions. The KNN provides pointwise estimates by averaging nearby
+samples in feature space (tunable k and distance metric) to capture
+local variability and produce probabilistic or continuous outputs; the
+HMM models depth-wise or profile-wise state dynamics via learned
+transition and emission parameters, using Viterbi/posterior decoding to
+segment profiles, smooth noisy predictions, and quantify sequence
+uncertainty. Combined, the KNN gives accurate local predictions while
+the HMM adds context-aware smoothing and state-segmentation, improving
+interpretability and robustness for subsurface profiling
 
 #### [Geaospatial interpolation Model](./modeling/geospatial_model.py)
 
-This model builds continuous spatial prediction surfaces by combining spatial feature engineering with spatially-aware modeling.
-It converts spatial locations and auxiliary layers into predictive features, fits models that capture spatial structure (for example local regressors, kriging/Gaussian-process style interpolators, or ensemble learners that incorporate spatial covariates),
-interpolates model outputs to a regular grid, and estimates per-location uncertainty (prediction intervals or kriging variance).
-The module also applies spatial validation and smoothing/post-processing to produce geologically plausible, ready-to-map rasters and
-saved model artifacts for downstream visualization and analysis.
-
-
+This model builds continuous spatial prediction surfaces by combining
+spatial feature engineering with spatially-aware modeling. It converts
+spatial locations and auxiliary layers into predictive features, fits
+models that capture spatial structure (for example local regressors,
+kriging/Gaussian-process style interpolators, or ensemble learners that
+incorporate spatial covariates), interpolates model outputs to a regular
+grid, and estimates per-location uncertainty (prediction intervals or
+kriging variance). The module also applies spatial validation and
+smoothing/post-processing to produce geologically plausible,
+ready-to-map rasters and saved model artifacts for downstream
+visualization and analysis.
 
 #### [Fit Models](./modeling/fit_models.py)
 
-This model coordinates training, selection, and evaluation across the project’s feature pipelines.
-It constructs end-to-end training workflows: builds preprocessing/feature pipelines, fits configurable estimators (e.g., tree ensembles, linear models, or other scikit-learn-compatible learners),
-runs hyperparameter search and cross-validation, and evaluates models with standard metrics and calibration checks.
-The script supports model comparison and ensembling, persists trained model artifacts and metadata, and produces evaluation summaries and diagnostics (learning curves, feature importances, confusion/misclassification analyses).
-Its role is orchestration—turning prepared features into validated, production-ready models that downstream modules can load for prediction and analysis.
+This model coordinates training, selection, and evaluation across the
+project’s feature pipelines. It constructs end-to-end training
+workflows: builds preprocessing/feature pipelines, fits configurable
+estimators (e.g., tree ensembles, linear models, or other
+scikit-learn-compatible learners), runs hyperparameter search and
+cross-validation, and evaluates models with standard metrics and
+calibration checks. The script supports model comparison and ensembling,
+persists trained model artifacts and metadata, and produces evaluation
+summaries and diagnostics (learning curves, feature importances,
+confusion/misclassification analyses). Its role is orchestration—turning
+prepared features into validated, production-ready models that
+downstream modules can load for prediction and analysis.
 
 #### [Binning Models](./modeling/binn_method_modelling.ipynb)
 
@@ -198,17 +215,24 @@ across specific lithostratigraphic units.
 
 #### [CRM Model](./modeling/model_CRM.py)
 
-Sequence-aware Conditional Random Field (CRF) model predicts lithostratigraphic units from CPT depth profiles.
-Each CPT has feature vectors ordered by depth and are treated as a sequence, with the corresponding lithostratigraphic units
-as the sequence of target labels. This yields one feature sequence and one label sequence per borehole, which the CRF then models
-jointly along depth.
+Sequence-aware Conditional Random Field (CRF) model predicts
+lithostratigraphic units from CPT depth profiles. Each CPT has feature
+vectors ordered by depth and are treated as a sequence, with the
+corresponding lithostratigraphic units as the sequence of target labels.
+This yields one feature sequence and one label sequence per borehole,
+which the CRF then models jointly along depth.
 
-These sequences are then used to train a linear-chain CRF that models both the relationship between features and labels at each depth
-and the dependencies between neighbouring lithostrat labels along depth.
-The model is implemented with the L-BFGS optimiser and all_possible_transitions=True, and its regularisation hyperparameters are tuned with RandomizedSearchCV
-using a sequence-aware F1 scorer and cross-validation on the training CPTs.
-Entire CPTs are kept either in the training or in the test set to avoid leakage along depth.
-The final CRF reaches about 58% test accuracy (weighted F1 ≈ 0.57) on held-out CPTs, and its trained weights are saved as a reusable model that can be loaded for further analysis and visualisation in the dashboard.
+These sequences are then used to train a linear-chain CRF that models
+both the relationship between features and labels at each depth and the
+dependencies between neighbouring lithostrat labels along depth. The
+model is implemented with the L-BFGS optimiser and
+all_possible_transitions=True, and its regularisation hyperparameters
+are tuned with RandomizedSearchCV using a sequence-aware F1 scorer and
+cross-validation on the training CPTs. Entire CPTs are kept either in
+the training or in the test set to avoid leakage along depth. The final
+CRF reaches about 58% test accuracy (weighted F1 ≈ 0.57) on held-out
+CPTs, and its trained weights are saved as a reusable model that can be
+loaded for further analysis and visualisation in the dashboard.
 
 ### Exploratory Analysis
 
@@ -221,11 +245,27 @@ modeling notebooks.
 
 #### Streamlit dashboard code
 
-dashboard_internals.py — Provides the app's reusable building blocks: cached data loaders, data-filtering and feature‑extraction utilities, plotting and mapping helpers (for Plotly/folium/GeoPandas), and model‑inference wrappers that load trained models and produce profile or spatial predictions. It encapsulates business logic and presentation helpers so the Streamlit UI stays thin and responsive
+dashboard_internals.py — Provides the app’s reusable building blocks:
+cached data loaders, data-filtering and feature‑extraction utilities,
+plotting and mapping helpers (for Plotly/folium/GeoPandas), and
+model‑inference wrappers that load trained models and produce profile or
+spatial predictions. It encapsulates business logic and presentation
+helpers so the Streamlit UI stays thin and responsive
 
-dashboard_scripts.py — The Streamlit application entrypoint: defines layout and UI controls (sidebars, selectors, model/parameter choices), reacts to user inputs, invokes dashboard_internals to run inference and generate visualizations, and renders interactive maps, profiles, and metrics. It manages session state and caching to keep interactions fast and handles user-driven exports/downloads.
+dashboard_scripts.py — The Streamlit application entrypoint: defines
+layout and UI controls (sidebars, selectors, model/parameter choices),
+reacts to user inputs, invokes dashboard_internals to run inference and
+generate visualizations, and renders interactive maps, profiles, and
+metrics. It manages session state and caching to keep interactions fast
+and handles user-driven exports/downloads.
 
-dashboard_preparation.py — Prepares and caches data and artifacts used by the dashboard: runs preprocessing pipelines, computes derived spatial layers or aggregated summaries, and optionally precomputes model output tiles or profile caches to accelerate the interactive app. Intended to be run ahead of launching the dashboard so the UI serves preprocessed, ready-to-render content.
+dashboard_preparation.py — Prepares and caches data and artifacts used
+by the dashboard: runs preprocessing pipelines, computes derived spatial
+layers or aggregated summaries, and optionally precomputes model output
+tiles or profile caches to accelerate the interactive app. Intended to
+be run ahead of launching the dashboard so the UI serves preprocessed,
+ready-to-render content.
+
 - [Dashboard internals](./dashboard/dashboard_internals.py)
 - [Dashboard main script](./dashboard/dashboard_scripts.py)
 - [Dashboard preparation script](./dashboard/dashboard_preparation.py)
@@ -268,3 +308,11 @@ scikit-learn
 
 - copy packages in a text file text_file_name.txt and run pip install -r
   text_file_name.txt to install all packages at once.
+
+### Results
+
+- [Feature importance plot](./results/rf_permutation_importance.png)
+
+- [Feature importance csv](./results/rf_permutation_importance.csv)
+
+- [Model predictive analysis results](./results/results_section.md)
