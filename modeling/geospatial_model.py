@@ -1083,7 +1083,7 @@ mask_seen_json = feat_test_json_eval["layer_label"].isin(set(feat_train["layer_l
 acc_json = (
     feat_test_json_eval.loc[mask_seen_json, "pred_label1"]
     == feat_test_json_eval.loc[mask_seen_json, "layer_label"]
-).mean()
+).mean() # when not MODEL_SELECTION: 1 - acc
 print(f"\nAccuracy on JSON TEST (tile-trained model, before post-processing): {acc_json:.3f}")
 
 # =============================================================================
