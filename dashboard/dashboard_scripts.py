@@ -376,12 +376,18 @@ if st.session_state.preprocessed:
 
         col_main, col_right = st.columns([3, 2])
 
+        candidate_features = ["icn","qc", "fs", "qtn", "rf", "fr", "sbt", "ksbt"]
+
+        feature = st.selectbox(
+                "Numeric CPT feature on x-axis",
+                candidate_features,
+                )
 
         #input = input.sort_values("diepte").reset_index(drop=True)
         with col_main:
             fig_main = px.line(
                 input,
-                x="icn",
+                x=feature,
                 y="diepte",
                 color="final",
                 height = 1200
@@ -394,7 +400,7 @@ if st.session_state.preprocessed:
         with col_right:
             fig_postprocessed = px.line(
                 input,
-                x="icn",
+                x=feature,
                 y="diepte",
                 color=label_column,
                 title="Predicted",
@@ -416,7 +422,7 @@ if st.session_state.preprocessed:
                 df = closest[closest["sondering_id"] == drilling_id]
                 fig_side = px.line(
                     df,
-                    x="icn",
+                    x=feature,
                     y="diepte",
                     color="lithostrat_id",
                     title=f"Drilling {drilling_id}",
@@ -439,9 +445,9 @@ if st.session_state.preprocessed:
 
     elif selected_category == "Nearest segment":
 
-        boundaries_indices = input["postprocessed"] != input["postprocessed"].shift(1)
+        boundaries_indices = input[label_column] != input[label_column].shift(1)
         boundaries_diepte = input.loc[boundaries_indices, "diepte"].tolist()
-        segment_labels = input.loc[boundaries_indices, "postprocessed"].tolist()
+        segment_labels = input.loc[boundaries_indices, label_column].tolist()
 
         default = "\n".join([f"{label} : {diepte}" for label, diepte in zip(segment_labels, boundaries_diepte)])
         #boundaries = input["diepte"][input["postprocessed"].diff() != 0].tolist()
@@ -505,7 +511,7 @@ if st.session_state.preprocessed:
                 x="icn",
                 y="diepte",
                 color="final",
-                title="Selected nearest drilling",
+                #title=,
                 height = 800
             )
             st.plotly_chart(fig_left, key="nearest_left_plot")
@@ -581,17 +587,17 @@ if st.session_state.preprocessed:
             width = 1200,
             hover_data={"gsip_proba": True},
                 )
-        fig_left.add_trace(
-            go.Scatter(
-                x = interpolated["diepte"],
-                y=interpolated["gsip_proba"] * max(interpolated["icn"]) * 0.9,
-                mode="lines",
-                line=dict(color="cyan", width=6,),
-                hovertemplate="GSIP probability: %{customdata:.2f}<extra></extra>",
-                customdata=interpolated["gsip_proba"].values,
-                showlegend = False,
+        #fig_left.add_trace(
+        #    go.Scatter(
+        #        x = interpolated["diepte"],
+        #        y=interpolated["gsip_proba"] * max(interpolated["icn"]) * 0.9,
+        #        mode="lines",
+        #        line=dict(color="cyan", width=6,),
+        #        hovertemplate="GSIP probability: %{customdata:.2f}<extra></extra>",
+        #        customdata=interpolated["gsip_proba"].values,
+        #        showlegend = False,
                 #title="GSIP probability",
-            ))
+        #    ))
         
         st.plotly_chart(fig_left, key="gsip_left_plot")
 
